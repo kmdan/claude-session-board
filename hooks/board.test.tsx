@@ -385,6 +385,26 @@ test('a board in a session it does not know shows no Here', async ($, on) => {
   await ui.unmount()
 })
 
+test('one click opens a session; a subsession links up to its parent', async ($, on) => {
+  await start($, on)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+
+  // closed card, one press: the session opens
+  ran.length = 0
+  await ui.press({ key: 'go-Docs audit' })
+  expect(ran.some(a => a.join(' ').includes('claude://claude.ai/epitaxy/Docs audit'))).toBe(true)
+
+  // the subsession's own card (in Still waiting) carries its way up
+  await ui.press({ key: 'show-waiting' })
+  ran.length = 0
+  await ui.press({ key: 'upo-Parser edge cases' })
+  expect(ran.some(a => a.join(' ').includes('claude://claude.ai/epitaxy/Parser rewrite'))).toBe(true)
+  await ui.press({ key: 'up-Parser edge cases' })
+  expect(await ui.find({ type: 'Text', text: /back to the board/ })).toBeDefined()
+  expect(await ui.find({ key: 't-Parser rewrite' })).toBeDefined()
+  await ui.unmount()
+})
+
 test('an open card lists related sessions, and one opens on its own', async ($, on) => {
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })

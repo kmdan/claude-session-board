@@ -3,10 +3,10 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { FullText, Index, Mark, Marks, Media, Moved, Note, Notes, Sess, TextHit, Ui } from '../types'
 import {
-  ago, baseName, byRecent, dueBucket, dueWord, matches, overlaps, parseQuick, projectColor, projectLabel, related,
+  ago, baseName, byRecent, dueBucket, dueWord, matches, overlaps, parseQuick, projectColor, projectLabel, relatedFinder,
   setMark, setProjectNames, stateOf,
 } from './board'
-import type { ProjectNames, State } from './board'
+import type { ProjectNames, Related, State } from './board'
 
 const PANE = 'session-board'
 const TITLE = 'Sessions'
@@ -70,6 +70,13 @@ function placement(sessions: Sess[], marks: Marks, now: number): Map<string, str
 
 // the last placement this board drew; a reload starts it empty (no glow then)
 let lastPlace = new Map<string, string>()
+
+// what a drawing would otherwise compute every time: the related-session
+// finder of the current index, the nearness to the watched session, and which
+// session this board is drawn in (fixed for the module's life)
+let memo: { at: number; count: number; find: (s: Sess, limit?: number) => Related[]; near: Map<string, Map<string, number>> } =
+  { at: -1, count: -1, find: () => [], near: new Map() }
+let selfCli: string | undefined
 
 async function glow($: $T, ids: string[]): Promise<void> {
   if (ids.length === 0) return
@@ -420,9 +427,15 @@ export const register: Register = on => {
     const byId = new Map(all.map(s => [s.id, s]))
 
     // the watched session: the one this board is drawn in
-    const selfCli = await $.session.id()
+    // The per-index work is done once per index, not on every drawing: a
+    // drawing that takes long is what shows as a blink when sessions switch.
+    if (memo.at !== ix.at || memo.count !== all.length) {
+      memo = { at: ix.at, count: all.length, find: relatedFinder(all), near: new Map() }
+    }
+    selfCli ??= await $.session.id()
     const here = all.find(s => s.cli === selfCli)
-    const nearness = new Map((here ? related(here, all, 15) : []).map(r => [r.s.id, r.score]))
+    if (here && !memo.near.has(here.id)) memo.near.set(here.id, new Map(memo.find(here, 15).map(r => [r.s.id, r.score])))
+    const nearness = here ? memo.near.get(here.id)! : new Map<string, number>()
     const borderOf = (s: Sess) => {
       const g = moved[s.id] ?? 0
       if (g > 0) return GLOW[g]
@@ -595,10 +608,10 @@ export const register: Register = on => {
         const dueNow = openTodos.filter(n => ['overdue', 'today'].includes(dueBucket(n.due, now))).length
         meta.push(`${openTodos.length} todo${openTodos.length > 1 ? 's' : ''}${dueNow ? ` (${dueNow} due)` : ''}`)
       }
-      const parent = s.parent ? byId.get(s.parent) : undefined
-      if (parent && depth === 0) meta.push(`↰ from ${parent.title}`)
+      // a subsession's way up: a button to its parent's card, drawn under the meta line
+      const parent = s.parent && depth === 0 ? byId.get(s.parent) : undefined
       const clash = isOpen ? overlaps(s, all, marks, now) : []
-      const rel = isOpen ? related(s, all, 5) : []
+      const rel = isOpen ? memo.find(s, 5) : []
       const allNotes = notes[s.id] ?? []
       // one detail tab at a time, five items at most: the open card stays short
       const tabs: { key: Ui['tab']; label: string }[] = []
@@ -617,12 +630,30 @@ export const register: Register = on => {
                 <Text bold>{s.title}</Text>
               </Button>
             </Box>
-            <Text wrap="truncate-end">
-              {here && s.id === here.id && <Text color={HERE}>◉ here  </Text>}
-              <Text color={projectColor(s.project)}>● {projectLabel(s.project)}</Text>
-            </Text>
+            <Box flexDirection="row" gap={1} flexShrink={0}>
+              <Text wrap="truncate-end">
+                {here && s.id === here.id && <Text color={HERE}>◉ here  </Text>}
+                <Text color={projectColor(s.project)}>● {projectLabel(s.project)}</Text>
+              </Text>
+              {/* one click to the session itself; the title only unfolds the card */}
+              {!(here && s.id === here.id) && (
+                <Button key={`go-${path}`} plain onPress={() => background($, openSession($, s.id))}>
+                  <Text dimColor>open ↗</Text>
+                </Button>
+              )}
+            </Box>
           </Box>
           <Text dimColor wrap="truncate-end">{meta.join(' · ')}</Text>
+          {parent && (
+            <Box flexDirection="row" gap={1}>
+              <Button key={`up-${path}`} plain onPress={() => setUi(u => ({ ...u, view: 'focus', focus: parent.id, open: '', tab: '' }))}>
+                <Text dimColor>↰ part of </Text><Text>{parent.title}</Text>
+              </Button>
+              <Button key={`upo-${path}`} plain onPress={() => background($, openSession($, parent.id))}>
+                <Text dimColor>open ↗</Text>
+              </Button>
+            </Box>
+          )}
           {(isOpen || state === 'need') && s.needs !== '' && <Text color={ACCENT}>→ {s.needs}</Text>}
           {children(s, depth, path)}
           {isOpen && (

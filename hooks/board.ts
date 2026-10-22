@@ -113,6 +113,16 @@ export type Related = { s: Sess; score: number; why: string }
  * has says nothing). Below 2 points is noise and is dropped.
  */
 export function related(s: Sess, all: Sess[], limit = 6): Related[] {
+  return relatedFinder(all)(s, limit)
+}
+
+/**
+ * The word and file counts over all sessions, built once; the finder it
+ * returns scores one session against them. Building them is the slow part
+ * (every session's words), so a board builds a finder once per index, not
+ * once per drawing.
+ */
+export function relatedFinder(all: Sess[]): (s: Sess, limit?: number) => Related[] {
   const df = new Map<string, number>()
   const fileDf = new Map<string, number>()
   const wordsOf = new Map<string, Set<string>>()
@@ -122,6 +132,13 @@ export function related(s: Sess, all: Sess[], limit = 6): Related[] {
     for (const x of w) df.set(x, (df.get(x) ?? 0) + 1)
     for (const f of new Set(o.files.map(p => p.toLowerCase()))) fileDf.set(f, (fileDf.get(f) ?? 0) + 1)
   }
+  return (s, limit = 6) => scoreRelated(s, all, limit, df, fileDf, wordsOf)
+}
+
+function scoreRelated(
+  s: Sess, all: Sess[], limit: number,
+  df: Map<string, number>, fileDf: Map<string, number>, wordsOf: Map<string, Set<string>>,
+): Related[] {
   const mine = wordsOf.get(s.id) ?? words(s)
   // a file many sessions write (a README, a shared log) is no evidence of a topic
   const myFiles = new Set(s.files.map(f => f.toLowerCase()).filter(f => (fileDf.get(f) ?? 0) <= 6))
