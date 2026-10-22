@@ -4,6 +4,25 @@ export type Media = { p: string; k: 'movie' | 'image' | 'page' | 'file'; t: numb
 /** A page the session published. */
 export type Art = { url: string; title: string; t: number }
 
+/** One question of a review page: its id (Q1), who the answer is for, the options. */
+export type Question = {
+  q: string
+  to: string
+  title: string
+  /** `value` is the full answer text the page copies; `rec` marks the session's own pick */
+  opts: { label: string; value: string; rec: boolean }[]
+  notes: boolean
+}
+
+/** A review page a session wrote that asks questions: its path, mtime, title, questions. */
+export type QPage = { p: string; t: number; title: string; qs: Question[] }
+
+/** Pages answered from the board: path -> when, and the page's mtime then (a newer page asks again). */
+export type Answered = Record<string, { at: number; t: number }>
+
+/** What is picked or written on a page before it is sent, by `${page}#${q}` ('#general' for the free text). */
+export type Drafts = Record<string, { pick?: string; note?: string }>
+
 /** One session as the indexer reports it (scripts/sessionindex.py). */
 export type Sess = {
   id: string
@@ -27,6 +46,7 @@ export type Sess = {
   commits: string[]
   media: Media[]
   artifacts: Art[]
+  questions: QPage[]
   /** filled from the app's live session list; false when that list was unreachable */
   running: boolean
 }
@@ -84,7 +104,7 @@ export type Ui = {
   label: string
   focus: string
   /** the one detail tab open on the open card ('' = none): one at a time keeps an open card short */
-  tab: '' | 'media' | 'files' | 'related' | 'notes'
+  tab: '' | 'questions' | 'media' | 'files' | 'related' | 'notes'
 }
 
 /** A full-text search over the conversations: one hit per matching session. */
@@ -107,6 +127,8 @@ declare module 'claude-code' {
       index: Index; ui: Ui; marks: Marks; notes: Notes; fullText: FullText; moved: Moved
       /** the session an "open" was just pressed for, while the app switches to it; '' = none */
       opening: string
+      answered: Answered
+      drafts: Drafts
     }
   }
 }

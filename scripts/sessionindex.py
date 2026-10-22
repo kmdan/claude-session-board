@@ -17,8 +17,14 @@ about 1% of the transcript, so a full-text search reads that instead:
 
   sessionindex.py --search <cache dir>     (the query on stdin, words AND-ed)
   -> {"hits": [{"cli", "count", "snip"}], "files": n, "ms": n}
+
+A session's HTML pages that follow the review-page shape (one `<div class="q"
+data-q="Q1" data-to="...">` per question, an <h3>, radio <input value="...">
+options, "my pick" marked with <span class="rec">) are read for their questions,
+so the board can show and answer them: "questions": [{p, t, title, qs: [...]}].
 """
 import glob
+import html.parser
 import json
 import os
 import re
@@ -163,6 +169,93 @@ def existing_media(paths):
     return out
 
 
+class QuestionReader(html.parser.HTMLParser):
+    """The review-page questions: each .q block's id, recipient, question and options."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.title = ""
+        self.qs = []
+        self._q = None          # the question being read
+        self._depth = 0         # div depth inside it
+        self._in = None         # "title" | "h3" | "label" | "rec"
+        self._opt = None
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        cls = (a.get("class") or "").split()
+        if tag == "title":
+            self._in = "title"
+        elif tag == "div" and "q" in cls and a.get("data-q") and self._q is None:
+            self._q = {"q": a["data-q"], "to": a.get("data-to") or "me", "title": "", "opts": [], "notes": False}
+            self._depth = 1
+        elif self._q is not None:
+            if tag == "div":
+                self._depth += 1
+            elif tag == "h3":
+                self._in = "h3"
+            elif tag == "label":
+                self._opt = {"label": "", "value": "", "rec": False}
+                self._in = "label"
+            elif tag == "input" and a.get("type") == "radio" and self._opt is not None:
+                self._opt["value"] = a.get("value") or ""
+            elif tag == "span" and "rec" in cls and self._opt is not None:
+                self._opt["rec"] = True
+                self._in = "rec"
+            elif tag == "textarea":
+                self._q["notes"] = True
+
+    def handle_endtag(self, tag):
+        if tag == "title":
+            self._in = None
+        elif self._q is None:
+            return
+        elif tag == "h3":
+            self._in = None
+        elif tag == "span" and self._in == "rec":
+            self._in = "label"
+        elif tag == "label" and self._opt is not None:
+            self._opt["label"] = " ".join(self._opt["label"].split())
+            if self._opt["value"] or self._opt["label"]:
+                self._q["opts"].append(self._opt)
+            self._opt = None
+            self._in = None
+        elif tag == "div":
+            self._depth -= 1
+            if self._depth == 0:
+                self._q["title"] = " ".join(self._q["title"].split())
+                self.qs.append(self._q)
+                self._q = None
+
+    def handle_data(self, data):
+        if self._in == "title":
+            self.title += data
+        elif self._in == "h3" and self._q is not None:
+            self._q["title"] += data
+        elif self._in == "label" and self._opt is not None:
+            self._opt["label"] += data
+
+
+def page_questions(path):
+    """The questions a review page asks (its free "General" block left out), or []."""
+    try:
+        if os.path.getsize(path) > 2_000_000:
+            return "", []
+        with open(path, "rb") as f:
+            text = f.read().decode("utf-8", "replace")
+    except OSError:
+        return "", []
+    if 'class="q"' not in text:
+        return "", []
+    reader = QuestionReader()
+    try:
+        reader.feed(text)
+    except Exception:  # a broken page asks nothing the board can read
+        return "", []
+    qs = [q for q in reader.qs if q["q"].lower() != "general" and (q["opts"] or q["notes"])]
+    return " ".join(reader.title.split()), qs
+
+
 def project_of(cwd):
     p = cwd.replace("/", "\\").rstrip("\\")
     low = p.lower()
@@ -224,6 +317,11 @@ def main():
             missing += 1
         info = dict(info)
         media = existing_media(info.pop("mediaSeen", []))
+        questions = []
+        for page in (m_ for m_ in media if m_["k"] == "page"):
+            title, qs = page_questions(page["p"])
+            if qs:
+                questions.append({"p": page["p"], "t": page["t"], "title": title or os.path.basename(page["p"]), "qs": qs})
         arts = [
             {"url": a.get("url", ""), "title": a.get("title") or "artifact", "t": a.get("updatedAt") or 0}
             for a in (m.get("publishedArtifacts") or []) if a.get("url")
@@ -248,6 +346,7 @@ def main():
             "transcript": tp or "",
             "media": media,
             "artifacts": arts,
+            "questions": questions,
             **info,
         })
 

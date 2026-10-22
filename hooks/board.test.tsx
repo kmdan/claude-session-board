@@ -28,6 +28,17 @@ const INDEX = {
     sess('Parser rewrite', {
       appStatus: 'blocked', needs: 'OK to merge', files: ['C:\\r\\a.py'], fileCount: 1,
       media: [{ p: 'C:\\out\\demo_walkthrough.mov', k: 'movie', t: NOW - 2 * H }],
+      questions: [{
+        p: 'C:\\out\\questions.html', t: NOW - H, title: 'Parser: open questions', qs: [
+          { q: 'Q1', to: 'me', title: 'Q1. Keep the old API?', notes: true, opts: [
+            { label: 'A. Yes, for one release', value: 'Keep it one release, then remove', rec: true },
+            { label: 'B. No', value: 'Remove it now', rec: false },
+          ] },
+          { q: 'Q2', to: 'parser-tests', title: 'Q2. Fuzz the tokenizer?', notes: true, opts: [
+            { label: 'A. Yes', value: 'Fuzz it', rec: false },
+          ] },
+        ],
+      }],
     }),
     sess('Parser edge cases', { appStatus: 'blocked', last: NOW - 3 * 24 * H, parent: 'Parser rewrite' }),
     sess('Docs audit', { project: 'api', files: ['C:\\r\\a.py'], fileCount: 1 }),
@@ -231,7 +242,7 @@ test('the watched session is listed once, under Here, and the header counts what
   expect(await ui.find({ key: 't-@Parser rewrite' })).toBeDefined()
   expect(await ui.find({ key: 't-Parser rewrite' })).toBeUndefined()
   // Parser rewrite is Here, so 0 need you; its child waits (its parent is not in that list)
-  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 1 waiting · 1 working · 0 good enough')
+  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 1 waiting · 1 working · 0 good enough · ❓ 1')
   await ui.unmount()
 })
 
@@ -283,7 +294,7 @@ test('the board sorts sessions into needs-you, working and parked, on every surf
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('1 need you · 1 waiting · 1 working · 0 good enough')
+    expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('1 need you · 1 waiting · 1 working · 0 good enough · ❓ 1')
     expect(await ui.find({ type: 'Text', text: /^Needs you \(1\)/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /Still waiting on you, 1-7 days \(1\)/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^Working \(1\)/ })).toBeDefined()
@@ -304,7 +315,7 @@ test('marking a session good enough moves it, and the files overlap shows', asyn
   await ui.press({ key: 'tab-Parser rewrite-related' })
   expect(await ui.find({ type: 'Text', text: /also editing the same files: Docs audit/ })).toBeDefined()
   await ui.press({ key: 'g-Parser rewrite' })
-  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 1 waiting · 1 working · 1 good enough')
+  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 1 waiting · 1 working · 1 good enough · ❓ 1')
 
   await ui.press({ key: 'o-Parser rewrite' })
   expect(ran.some(a => a.join(' ').includes('claude://claude.ai/epitaxy/Parser rewrite'))).toBe(true)
@@ -382,6 +393,35 @@ test('a board in a session it does not know shows no Here', async ($, on) => {
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /◉ here/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a review page is answered on the card and the answers go to its session in the page format', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  await start($, on, store)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+
+  expect(await ui.find({ type: 'Text', text: /❓ 2 questions/ })).toBeDefined()
+  await ui.press({ key: 't-Parser rewrite' })
+  await ui.press({ key: 'tab-Parser rewrite-questions' })
+  expect(await ui.find({ type: 'Text', text: /^Q1\. Keep the old API\?/ })).toBeDefined()
+
+  // pick B (not the session's own pick), a note on Q1, Q2 left open, and free text
+  await ui.press({ key: 'qo-Parser rewrite-0-Q1-1' })
+  await ui.input({ key: 'qn-Parser rewrite-0-Q1', text: 'nobody uses it', kind: 'change' })
+  await ui.input({ key: 'qg-Parser rewrite-0', text: 'nice work', kind: 'change' })
+  sent.length = 0
+  await ui.press({ key: 'qs-Parser rewrite-0' })
+  expect(sent).toEqual([{
+    session_id: 'Parser rewrite',
+    message: 'Answers from Parser: open questions:\nQ1 [me]: Remove it now | note: nobody uses it\nGeneral [me]: nice work',
+  }])
+
+  // answered: the badge goes, the tab says so, and the page is remembered
+  expect(await ui.find({ type: 'Text', text: /❓ 2 questions/ })).toBeUndefined()
+  expect(await ui.find({ key: 'tab-Parser rewrite-questions' })).toMatchObject({ props: { } })
+  expect(Object.keys(store.answered as object)).toEqual(['C:\\out\\questions.html'])
+  expect(await ui.find({ type: 'Text', text: /✓ Parser: open questions · answered/ })).toBeDefined()
   await ui.unmount()
 })
 

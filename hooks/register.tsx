@@ -1,9 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { FullText, Index, Mark, Marks, Media, Moved, Note, Notes, Sess, TextHit, Ui } from '../types'
+import type { Answered, Drafts, FullText, Index, Mark, Marks, Media, Moved, Note, Notes, QPage, Sess, TextHit, Ui } from '../types'
 import {
-  ago, baseName, byRecent, dueBucket, dueWord, matches, overlaps, parseQuick, projectColor, projectLabel, relatedFinder,
+  ago, baseName, byRecent, composeAnswers, dueBucket, dueWord, isOpenPage, matches, overlaps, parseQuick, projectColor,
+  projectLabel, relatedFinder,
   setMark, setProjectNames, stateOf,
 } from './board'
 import type { ProjectNames, Related, State } from './board'
@@ -47,6 +48,8 @@ const fullTextAtom = atom({ plugin: 'session-board', key: 'fullText' } as const,
   { query: '', hits: [], isLoading: false, note: '' } as FullText)
 const movedAtom = atom({ plugin: 'session-board', key: 'moved' } as const, {} as Moved)
 const openingAtom = atom({ plugin: 'session-board', key: 'opening' } as const, '')
+const answeredAtom = atom({ plugin: 'session-board', key: 'answered' } as const, {} as Answered)
+const draftsAtom = atom({ plugin: 'session-board', key: 'drafts' } as const, {} as Drafts)
 
 type $T = EngineInterface
 
@@ -147,7 +150,7 @@ async function refresh($: $T): Promise<void> {
     } else {
       const out = JSON.parse(run.stdout) as { sessions: Sess[]; scanned: number; cached: number; missing: number; ms: number }
       sessions = out.sessions.map(s => ({
-        ...s, files: s.files.slice(0, 15), commits: s.commits.slice(-6), media: s.media ?? [], artifacts: s.artifacts ?? [], running: false,
+        ...s, files: s.files.slice(0, 15), commits: s.commits.slice(-6), media: s.media ?? [], artifacts: s.artifacts ?? [], questions: s.questions ?? [], running: false,
       }))
       note = `${out.sessions.length} sessions, ${out.scanned} transcripts read, ${out.cached} from cache, ${out.missing} without a transcript, ${out.ms} ms`
     }
@@ -247,6 +250,8 @@ async function loadStored($: $T): Promise<void> {
   if (marks) await update($, marksAtom, () => marks)
   const notes = (await $.store.get('notes')) as Notes | undefined
   if (notes) await update($, notesAtom, () => notes)
+  const answered = (await $.store.get('answered')) as Answered | undefined
+  if (answered) await update($, answeredAtom, () => answered)
 }
 
 /**
@@ -258,26 +263,53 @@ async function sendNote($: $T, s: Sess, n: Note, how: 'prompt' | 'subsession'): 
   const message = how === 'prompt' ? n.text
     : `Start a linked side session for this (start_session, initiation "user_asked", context "fork"), `
       + `brief it from what you know here, then carry on with your own work:\n\n${n.text}`
-  let result = ''
-  try {
-    const res = await $.mcp.call('ccd_session_mgmt', 'send_message', { session_id: s.id, message })
-    const block = res.content.find(c => c.type === 'text') as { text: string } | undefined
-    result = block?.text ?? ''
-    if (res.isError) {
-      // the board's own session cannot message itself: submit here instead
-      if (/current session/i.test(result)) {
-        await $.prompt.submit({ text: message })
-      } else {
-        $.ui.toast(`Not sent: ${result.slice(0, 200)}`)
-        return
-      }
-    }
-  } catch (err) {
-    $.ui.toast(`Not sent: ${String(err).slice(0, 200)}`)
-    return
-  }
+  if (!(await deliver($, s.id, message))) return
   await editNotes($, s.id, list => list.map(x => (x.id === n.id ? { ...x, sent: how } : x)))
   $.ui.toast(how === 'prompt' ? `Sent to "${s.title}"` : `Asked "${s.title}" to start a subsession`)
+}
+
+/**
+ * Puts a message into a session as the person's next turn. The board's own
+ * session cannot message itself, so there it is submitted directly. False
+ * (with a toast saying why) when it did not go.
+ */
+async function deliver($: $T, sessionId: string, message: string): Promise<boolean> {
+  try {
+    const res = await $.mcp.call('ccd_session_mgmt', 'send_message', { session_id: sessionId, message })
+    const block = res.content.find(c => c.type === 'text') as { text: string } | undefined
+    const result = block?.text ?? ''
+    if (!res.isError) return true
+    if (/current session/i.test(result)) {
+      await $.prompt.submit({ text: message })
+      return true
+    }
+    $.ui.toast(`Not sent: ${result.slice(0, 200)}`)
+  } catch (err) {
+    $.ui.toast(`Not sent: ${String(err).slice(0, 200)}`)
+  }
+  return false
+}
+
+/** One pick or note on a review page, kept until the answers are sent. */
+async function setDraft($: $T, key: string, patch: { pick?: string; note?: string }): Promise<void> {
+  await update($, draftsAtom, d => ({ ...d, [key]: { ...(d[key] ?? {}), ...patch } }))
+}
+
+/** Sends a page's answers into the session that wrote it, and marks the page answered. */
+async function sendAnswers($: $T, s: Sess, page: QPage): Promise<void> {
+  const drafts = (await read($, draftsAtom)) ?? {}
+  const { text, count } = composeAnswers(page, drafts)
+  if (count === 0) {
+    $.ui.toast('Pick an answer or write a note first.')
+    return
+  }
+  if (!(await deliver($, s.id, text))) return
+  const stored = ((await $.store.get('answered')) as Answered | undefined) ?? {}
+  const next = { ...stored, [page.p]: { at: Date.now(), t: page.t } }
+  await $.store.set('answered', next)
+  await update($, answeredAtom, () => next)
+  await update($, draftsAtom, d => Object.fromEntries(Object.entries(d).filter(([k]) => !k.startsWith(`${page.p}#`))))
+  $.ui.toast(`${count} answer${count > 1 ? 's' : ''} sent to "${s.title}"`)
 }
 
 /** Adds a todo from a quick-add line: `@label` and one date word are read out of it. */
@@ -430,6 +462,9 @@ export const register: Register = on => {
     const notes = (await read($, notesAtom)) ?? {}
     const moved = (await read($, movedAtom)) ?? {}
     const opening = (await read($, openingAtom)) ?? ''
+    const answered = (await read($, answeredAtom)) ?? {}
+    const drafts = (await read($, draftsAtom)) ?? {}
+    const openPages = (s: Sess) => s.questions.filter(p => isOpenPage(p, answered))
     const fullText = await read($, fullTextAtom)
     const now = Date.now()
 
@@ -539,6 +574,77 @@ export const register: Register = on => {
       )
     }
 
+    // A review page's questions, answered here: each option is a button (★ =
+    // the session's own pick), a note per question, free text at the end, and
+    // Send puts it all into the session in the page's own answer format. The
+    // newest open page shows in full; answered ones fold to a line each.
+    const questionsBlock = (s: Sess, path: string) => {
+      const open = openPages(s).sort((a, b) => b.t - a.t)
+      const done = s.questions.filter(p => !isOpenPage(p, answered)).sort((a, b) => b.t - a.t)
+      const page = open[0]
+      return (
+        <Box flexDirection="column">
+          {page && (() => {
+            const pi = s.questions.indexOf(page)
+            const { count } = composeAnswers(page, drafts)
+            return (
+              <Box key={`qp-${path}-${pi}`} flexDirection="column">
+                <Box flexDirection="row" gap={1}>
+                  <Box flexShrink={1}><Text bold>{page.title}</Text></Box>
+                  <Button key={`qpo-${path}-${pi}`} plain onPress={() => background($, openFile($, page.p))}>
+                    <Text dimColor>open page ↗</Text>
+                  </Button>
+                </Box>
+                {page.qs.map(q => {
+                  const key = `${page.p}#${q.q}`
+                  const d = drafts[key] ?? {}
+                  return (
+                    <Box key={`qq-${path}-${pi}-${q.q}`} flexDirection="column" marginTop={1}>
+                      <Text>{q.title}{q.to !== 'me' ? <Text dimColor>  [for {q.to}]</Text> : null}</Text>
+                      {q.opts.map((o, oi) => (
+                        <Button key={`qo-${path}-${pi}-${q.q}-${oi}`} plain
+                          onPress={() => background($, setDraft($, key, { pick: d.pick === o.value ? '' : o.value }))}>
+                          <Text color={d.pick === o.value ? ACCENT : undefined} dimColor={d.pick !== o.value}>
+                            {d.pick === o.value ? '◉ ' : '○ '}{o.label}
+                          </Text>
+                          {o.rec && <Text color={DOT.good}> ★</Text>}
+                        </Button>
+                      ))}
+                      {q.notes && (
+                        <Input key={`qn-${path}-${pi}-${q.q}`} placeholder="note" value={d.note ?? ''}
+                          onInput={v => background($, setDraft($, key, { note: v }))}
+                          onSubmit={v => background($, setDraft($, key, { note: v }))} />
+                      )}
+                    </Box>
+                  )
+                })}
+                <Box marginTop={1} flexDirection="column">
+                  <Input key={`qg-${path}-${pi}`} placeholder="Anything else? (screenshots: paste them on the page)"
+                    value={drafts[`${page.p}#general`]?.note ?? ''}
+                    onInput={v => background($, setDraft($, `${page.p}#general`, { note: v }))}
+                    onSubmit={v => background($, setDraft($, `${page.p}#general`, { note: v }))} />
+                </Box>
+                <Box marginTop={1}>
+                  <Button key={`qs-${path}-${pi}`} variant="primary"
+                    label={count ? `Send ${count} answer${count > 1 ? 's' : ''} to this session` : 'Send answers'}
+                    onPress={() => background($, sendAnswers($, s, page))} />
+                </Box>
+                {open.length > 1 && <Text dimColor>{open.length - 1} older question page{open.length > 2 ? 's' : ''} wait after this one.</Text>}
+              </Box>
+            )
+          })()}
+          {done.slice(0, 3).map(p => (
+            <Box key={`qd-${path}-${s.questions.indexOf(p)}`} flexDirection="row" gap={1}>
+              <Text dimColor>✓ {p.title} · answered {ago(now - (answered[p.p]?.at ?? now))} ago</Text>
+              <Button key={`qdo-${path}-${s.questions.indexOf(p)}`} plain onPress={() => background($, openFile($, p.p))}>
+                <Text dimColor>open page ↗</Text>
+              </Button>
+            </Box>
+          ))}
+        </Box>
+      )
+    }
+
     const noteBlock = (s: Sess) => {
       const list = notes[s.id] ?? []
       return (
@@ -614,6 +720,9 @@ export const register: Register = on => {
       if (s.fileCount) meta.push(`${s.fileCount} files`)
       if (s.media.length) meta.push(`${s.media.length} media`)
       if (s.artifacts.length) meta.push(`${s.artifacts.length} pages`)
+      const asks = openPages(s)
+      const askCount = asks.reduce((sum, p) => sum + p.qs.length, 0)
+      if (askCount) meta.unshift(`❓ ${askCount} question${askCount > 1 ? 's' : ''}`)
       const openTodos = (notes[s.id] ?? []).filter(n => !n.done && !n.sent)
       if (openTodos.length) {
         const dueNow = openTodos.filter(n => ['overdue', 'today'].includes(dueBucket(n.due, now))).length
@@ -626,6 +735,7 @@ export const register: Register = on => {
       const allNotes = notes[s.id] ?? []
       // one detail tab at a time, five items at most: the open card stays short
       const tabs: { key: Ui['tab']; label: string }[] = []
+      if (s.questions.length) tabs.push({ key: 'questions', label: askCount ? `❓ Questions ${askCount}` : 'Questions ✓' })
       if (s.media.length + s.artifacts.length) tabs.push({ key: 'media', label: `Media ${s.media.length + s.artifacts.length}` })
       if (s.fileCount) tabs.push({ key: 'files', label: `Files ${s.fileCount}` })
       if (rel.length) tabs.push({ key: 'related', label: `Related ${rel.length}${clash.length ? ' ⚠' : ''}` })
@@ -679,6 +789,7 @@ export const register: Register = on => {
                 ))}
               </Box>
 
+              {tab === 'questions' && questionsBlock(s, path)}
               {tab === 'media' && (
                 <Box flexDirection="column">
                   {s.artifacts.slice(0, 2).map(a => (
@@ -805,6 +916,8 @@ export const register: Register = on => {
       list.map(n => ({ owner, n, s: owner === INBOX ? undefined : byId.get(owner) })))
     const labelsInUse = [...new Set(allTodos.filter(r => !r.n.done).flatMap(r => r.n.labels ?? []))].sort()
     const dueToday = allTodos.filter(r => !r.n.done && ['overdue', 'today'].includes(dueBucket(r.n.due, now))).length
+    // sessions with unanswered question pages written in the last two weeks (older ones are history)
+    const asking = all.filter(s => openPages(s).some(p => now - p.t < 14 * 86_400_000)).length
 
     const todosView = () => {
       const shown = allTodos.filter(r =>
@@ -911,6 +1024,7 @@ export const register: Register = on => {
           <Text bold>
             {topLevel(groups.need).length} need you · {topLevel(groups.waiting).length} waiting · {topLevel(groups.working).length} working · {topLevel(groups.good).length} good enough
             {dueToday > 0 && <Text color={ACCENT}> · {dueToday} due</Text>}
+            {asking > 0 && <Text color={ACCENT}> · ❓ {asking}</Text>}
           </Text>
           <Box flexDirection="row" gap={1} alignItems="center">
             {ix.isLoading && Svg && <Svg source={PULSE} alt="indexing" width={12} height={12} isInteractive />}

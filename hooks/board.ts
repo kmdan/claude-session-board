@@ -1,5 +1,5 @@
 // Pure board logic: no `$`, so the tests drive it directly.
-import type { Mark, Marks, Sess } from '../types'
+import type { Answered, Drafts, Mark, Marks, QPage, Sess } from '../types'
 
 export type State = 'need' | 'waiting' | 'working' | 'week' | 'earlier' | 'good' | 'done' | 'parked'
 
@@ -170,6 +170,34 @@ function scoreRelated(
 export function baseName(path: string): string {
   const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
   return cut < 0 ? path : path.slice(cut + 1)
+}
+
+/** A review page still asks: never answered from the board, or rewritten since. */
+export function isOpenPage(page: QPage, answered: Answered): boolean {
+  const a = answered[page.p]
+  return !a || a.t < page.t
+}
+
+/**
+ * The answers to a review page, in the page's own "Copy answers" format, so a
+ * session reads them the same either way:
+ *   Answers from <title>:
+ *   Q1 [me]: <picked option's full text> | note: <note>
+ *   General [me]: <free text>
+ * Questions with neither a pick nor a note are left out; `count` says how many went.
+ */
+export function composeAnswers(page: QPage, drafts: Drafts): { text: string; count: number } {
+  const lines: string[] = []
+  for (const q of page.qs) {
+    const d = drafts[`${page.p}#${q.q}`] ?? {}
+    const parts: string[] = []
+    if (d.pick) parts.push(d.pick)
+    if (d.note?.trim()) parts.push(`note: ${d.note.trim()}`)
+    if (parts.length) lines.push(`${q.q} [${q.to}]: ${parts.join(' | ')}`)
+  }
+  const general = drafts[`${page.p}#general`]?.note?.trim()
+  if (general) lines.push(`General [me]: ${general}`)
+  return { text: `Answers from ${page.title}:\n${lines.join('\n')}`, count: lines.length }
 }
 
 /** A local calendar day as `YYYY-MM-DD`. */
