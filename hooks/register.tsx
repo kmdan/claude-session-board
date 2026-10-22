@@ -290,7 +290,7 @@ async function runningIds($: $T): Promise<Set<string> | string> {
  * write re-reads the store first: another session's marks and notes since
  * this one loaded are kept, not overwritten with a stale copy.
  */
-async function mark($: $T, id: string, m: Mark | null): Promise<void> {
+async function mark($: $T, id: string, m: Mark | null, title = ''): Promise<void> {
   const stored = ((await $.store.get('marks')) as Marks | undefined) ?? {}
   const next = setMark(stored, id, m, Date.now())
   await $.store.set('marks', next)
@@ -299,6 +299,9 @@ async function mark($: $T, id: string, m: Mark | null): Promise<void> {
   const ix = await read($, indexAtom)
   lastPlace = placement(ix.sessions, next, Date.now())
   await glow($, [id])
+  // said in words too: a card that stays put (the one under Here) shows no move
+  const words: Record<Mark, string> = { good: 'good enough', done: 'done', parked: 'parked', working: 'working' }
+  $.ui.toast(m ? `Marked ${words[m]}${title ? `: ${title}` : ''}` : `Back to automatic${title ? `: ${title}` : ''}`)
 }
 
 async function editNotes($: $T, id: string, fn: (list: Note[]) => Note[]): Promise<void> {
@@ -916,12 +919,17 @@ export const register: Register = on => {
               {s.transcript === '' && <Text dimColor>no transcript found, so files and media were never read</Text>}
 
               <Box flexDirection="row" flexWrap="wrap" gap={1} marginTop={1}>
-                <Button key={`o-${path}`} variant="primary" label="Open" onPress={() => background($, openSession($, s.id))} />
-                <Button key={`g-${path}`} label="Good enough" onPress={() => background($, mark($, s.id, 'good'))} />
-                <Button key={`d-${path}`} label="Done" onPress={() => background($, mark($, s.id, 'done'))} />
-                <Button key={`p-${path}`} label="Park" onPress={() => background($, mark($, s.id, 'parked'))} />
-                <Button key={`w-${path}`} label="Working" onPress={() => background($, mark($, s.id, 'working'))} />
-                {marks[s.id] && <Button key={`x-${path}`} label="Auto" onPress={() => background($, mark($, s.id, null))} />}
+                {/* this session's own card has nowhere to open to */}
+                {!(here && s.id === here.id) && (
+                  <Button key={`o-${path}`} label="Open" onPress={() => background($, openSession($, s.id))} />
+                )}
+                {/* the state set by hand is the highlighted one; pressing it again goes back to automatic */}
+                {([['g', 'good', 'Good enough'], ['d', 'done', 'Done'], ['p', 'parked', 'Park'], ['w', 'working', 'Working']] as const).map(([k, m, label]) => (
+                  <Button key={`${k}-${path}`} variant={marks[s.id]?.mark === m ? 'primary' : 'secondary'}
+                    label={marks[s.id]?.mark === m ? `✓ ${label}` : label}
+                    onPress={() => background($, mark($, s.id, marks[s.id]?.mark === m ? null : m, s.title))} />
+                ))}
+                {marks[s.id] && <Button key={`x-${path}`} label="Auto" onPress={() => background($, mark($, s.id, null, s.title))} />}
               </Box>
             </Box>
           )}

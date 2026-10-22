@@ -61,6 +61,7 @@ let panes: { id: string; title: string; isShown: boolean; isFocused: boolean; is
 const logged: string[] = []
 const searched: string[] = []
 const started: { title: string; prompt: string }[] = []
+const toasts: string[] = []
 
 // files the board writes (its snapshot), shared by every "session" of a test
 const disk: Record<string, { text: string; mtimeMs: number }> = {}
@@ -93,7 +94,10 @@ function engine(on: any, store: Record<string, unknown> = {}, self = 'cli-elsewh
     opened += 1
     return { value: { isPlaced: placed } }
   })
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', (_: unknown, e: any) => {
+    toasts.push(String(e.text ?? e))
+    return { value: undefined }
+  })
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('store.get', (_: unknown, e: any) => ({ value: store[e.key] }))
   on('store.set', (_: unknown, e: any) => {
@@ -316,6 +320,21 @@ test('a card that changes section glows, then fades back in three steps', async 
   const after = await ui.find({ key: 'c-Parser rewrite' })
   // the brightest glow step right after the move, against the plain border before
   expect([before?.props?.borderColor, after?.props?.borderColor]).toEqual(['#3a3a40', '#e0b878'])
+  await ui.unmount()
+})
+
+test('on the Here card: no Open, and a mark shows as the active button, says so, and toggles back', async ($, on) => {
+  await start($, on, {}, 'cli-Parser rewrite')
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 't-@Parser rewrite' })
+  expect(await ui.find({ key: 'o-@Parser rewrite' })).toBeUndefined()
+  toasts.length = 0
+  await ui.press({ key: 'd-@Parser rewrite' })
+  expect(await ui.find({ key: 'd-@Parser rewrite' })).toMatchObject({ props: { label: '✓ Done', variant: 'primary' } })
+  expect(toasts).toEqual(['Marked done: Parser rewrite'])
+  // the same button again: back to automatic
+  await ui.press({ key: 'd-@Parser rewrite' })
+  expect(await ui.find({ key: 'd-@Parser rewrite' })).toMatchObject({ props: { label: 'Done', variant: 'secondary' } })
   await ui.unmount()
 })
 
