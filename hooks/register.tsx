@@ -46,6 +46,7 @@ const notesAtom = atom({ plugin: 'session-board', key: 'notes' } as const, {} as
 const fullTextAtom = atom({ plugin: 'session-board', key: 'fullText' } as const,
   { query: '', hits: [], isLoading: false, note: '' } as FullText)
 const movedAtom = atom({ plugin: 'session-board', key: 'moved' } as const, {} as Moved)
+const openingAtom = atom({ plugin: 'session-board', key: 'opening' } as const, '')
 
 type $T = EngineInterface
 
@@ -317,7 +318,16 @@ async function startFromTodo($: $T, n: Note): Promise<void> {
   }
 }
 
+/**
+ * Opens a session through the app's own link. Windows hands the link to the
+ * app, which takes a few seconds to switch, so the button says "opening…" at
+ * once instead of looking dead.
+ */
 async function openSession($: $T, id: string): Promise<void> {
+  await update($, openingAtom, () => id)
+  $.clock.after(5_000, () => {
+    background($, update($, openingAtom, o => (o === id ? '' : o)))
+  })
   await $.process.run(['cmd', '/c', 'start', '', `claude://claude.ai/epitaxy/${id}`])
 }
 
@@ -419,6 +429,7 @@ export const register: Register = on => {
     const marks = (await read($, marksAtom)) ?? {}
     const notes = (await read($, notesAtom)) ?? {}
     const moved = (await read($, movedAtom)) ?? {}
+    const opening = (await read($, openingAtom)) ?? ''
     const fullText = await read($, fullTextAtom)
     const now = Date.now()
 
@@ -638,7 +649,7 @@ export const register: Register = on => {
               {/* one click to the session itself; the title only unfolds the card */}
               {!(here && s.id === here.id) && (
                 <Button key={`go-${path}`} plain onPress={() => background($, openSession($, s.id))}>
-                  <Text dimColor>open ↗</Text>
+                  {opening === s.id ? <Text color={ACCENT}>opening…</Text> : <Text dimColor>open ↗</Text>}
                 </Button>
               )}
             </Box>
@@ -650,7 +661,7 @@ export const register: Register = on => {
                 <Text dimColor>↰ part of </Text><Text>{parent.title}</Text>
               </Button>
               <Button key={`upo-${path}`} plain onPress={() => background($, openSession($, parent.id))}>
-                <Text dimColor>open ↗</Text>
+                {opening === parent.id ? <Text color={ACCENT}>opening…</Text> : <Text dimColor>open ↗</Text>}
               </Button>
             </Box>
           )}

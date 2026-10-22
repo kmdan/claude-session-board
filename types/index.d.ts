@@ -105,6 +105,8 @@ declare module 'claude-code' {
   interface PluginState {
     'session-board': {
       index: Index; ui: Ui; marks: Marks; notes: Notes; fullText: FullText; moved: Moved
+      /** the session an "open" was just pressed for, while the app switches to it; '' = none */
+      opening: string
     }
   }
 }

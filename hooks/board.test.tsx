@@ -393,6 +393,8 @@ test('one click opens a session; a subsession links up to its parent', async ($,
   ran.length = 0
   await ui.press({ key: 'go-Docs audit' })
   expect(ran.some(a => a.join(' ').includes('claude://claude.ai/epitaxy/Docs audit'))).toBe(true)
+  // the app takes seconds to switch: the button answers at once
+  expect(await ui.find({ type: 'Text', text: /^opening…$/ })).toBeDefined()
 
   // the subsession's own card (in Still waiting) carries its way up
   await ui.press({ key: 'show-waiting' })
