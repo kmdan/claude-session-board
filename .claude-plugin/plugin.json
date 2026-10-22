@@ -1,0 +1,7 @@
+{
+  "name": "session-board",
+  "version": "0.2.0",
+  "description": "A calm board of every Claude Code desktop session: what needs you, what runs, what is good enough, with notes, media, subsessions and full-text search.",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

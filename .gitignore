@@ -1,0 +1,6 @@
+# Everything the board reads or keeps about YOUR sessions stays on your machine:
+cache/
+# your own short names and colours for project folders
+projects.json
+# written by Claude Code at every load: the API, and the tools connected on this machine
+.claude-plugin/types/
