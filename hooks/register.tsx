@@ -3,8 +3,8 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Answered, Drafts, FullText, Index, Mark, Marks, Media, Moved, Note, Notes, QPage, Sess, TextHit, Ui } from '../types'
 import {
-  ago, baseName, byRecent, composeAnswers, dueBucket, dueWord, isOpenPage, matches, overlaps, parseQuick, projectColor,
-  projectLabel, relatedFinder,
+  ago, baseName, byRecent, chatAnswers, composeAnswers, dueBucket, dueWord, isAsking, isOpenPage, matches, overlaps, pageSig,
+  parseQuick, projectColor, projectLabel, relatedFinder,
   setMark, setProjectNames, stateOf,
 } from './board'
 import type { ProjectNames, Related, State } from './board'
@@ -32,7 +32,7 @@ const RELATED_BORDER: [number, string][] = [[8, '#8f7a55'], [4, '#6b5d45'], [2, 
 
 // the state of each session in a drawn thread, one quiet dot each
 const DOT: Record<State, string> = {
-  need: ACCENT, waiting: ACCENT, working: '#5fae6e', week: '#9a9a96', earlier: '#9a9a96',
+  need: ACCENT, waiting: ACCENT, working: '#5fae6e', today: '#b0b0ac', week: '#9a9a96', earlier: '#9a9a96',
   good: '#b8a46a', done: '#6f8fbf', parked: '#5a5a5e',
 }
 
@@ -50,6 +50,8 @@ const movedAtom = atom({ plugin: 'session-board', key: 'moved' } as const, {} as
 const openingAtom = atom({ plugin: 'session-board', key: 'opening' } as const, '')
 const answeredAtom = atom({ plugin: 'session-board', key: 'answered' } as const, {} as Answered)
 const draftsAtom = atom({ plugin: 'session-board', key: 'drafts' } as const, {} as Drafts)
+// per session, when you last opened its card or the session: a newer ask pulses
+const seenAtom = atom({ plugin: 'session-board', key: 'seen' } as const, {} as Record<string, number>)
 
 type $T = EngineInterface
 
@@ -78,8 +80,11 @@ let lastPlace = new Map<string, string>()
 // what a drawing would otherwise compute every time: the related-session
 // finder of the current index, the nearness to the watched session, and which
 // session this board is drawn in (fixed for the module's life)
-let memo: { at: number; count: number; find: (s: Sess, limit?: number) => Related[]; near: Map<string, Map<string, number>> } =
-  { at: -1, count: -1, find: () => [], near: new Map() }
+let memo: {
+  at: number; count: number; find: (s: Sess, limit?: number) => Related[]; near: Map<string, Map<string, number>>
+  /** page title -> when it was last answered in any chat */
+  chat: Map<string, number>
+} = { at: -1, count: -1, find: () => [], near: new Map(), chat: new Map() }
 let selfCli: string | undefined
 
 async function glow($: $T, ids: string[]): Promise<void> {
@@ -100,13 +105,35 @@ async function glow($: $T, ids: string[]): Promise<void> {
 }
 
 /** Takes a new index; the sessions whose section or rank changed glow (at most 12). */
-async function setIndex($: $T, sessions: Sess[], at: number, note: string, isLoading: boolean): Promise<void> {
+async function setIndex($: $T, sessions: Sess[], at: number, note: string, isLoading: boolean, isFull = true): Promise<void> {
   const marks = (await read($, marksAtom)) ?? {}
   const place = placement(sessions, marks, Date.now())
   const moved = lastPlace.size === 0 ? [] : [...place].filter(([id, p]) => lastPlace.get(id) !== p).map(([id]) => id)
   lastPlace = place
   await update($, indexAtom, () => ({ sessions, at, note, isLoading }))
   if (moved.length <= 12) await glow($, moved)
+  if (isFull) await recordChatAnswers($, sessions)
+}
+
+/**
+ * A page answered by pasting its answers into a chat is recorded like one
+ * answered from the board, with its questions' signature, so it stays closed
+ * when its session rewrites it and opens again only for new questions.
+ */
+async function recordChatAnswers($: $T, sessions: Sess[]): Promise<void> {
+  const chat = chatAnswers(sessions)
+  const stored = ((await $.store.get('answered')) as Answered | undefined) ?? {}
+  const added: Answered = {}
+  for (const s of sessions) {
+    for (const page of s.questions ?? []) {
+      const at = chat.get(page.title)
+      if (at !== undefined && !stored[page.p]) added[page.p] = { at, t: page.t, sig: pageSig(page) }
+    }
+  }
+  if (Object.keys(added).length === 0) return
+  const next = { ...stored, ...added }
+  await $.store.set('answered', next)
+  await update($, answeredAtom, () => next)
 }
 
 /**
@@ -150,7 +177,7 @@ async function refresh($: $T): Promise<void> {
     } else {
       const out = JSON.parse(run.stdout) as { sessions: Sess[]; scanned: number; cached: number; missing: number; ms: number }
       sessions = out.sessions.map(s => ({
-        ...s, files: s.files.slice(0, 15), commits: s.commits.slice(-6), media: s.media ?? [], artifacts: s.artifacts ?? [], questions: s.questions ?? [], running: false,
+        ...s, files: s.files.slice(0, 15), commits: s.commits.slice(-6), media: s.media ?? [], artifacts: s.artifacts ?? [], questions: s.questions ?? [], answers: s.answers ?? [], running: false,
       }))
       note = `${out.sessions.length} sessions, ${out.scanned} transcripts read, ${out.cached} from cache, ${out.missing} without a transcript, ${out.ms} ms`
     }
@@ -191,6 +218,45 @@ async function loadSnapshot($: $T, isForced = false): Promise<void> {
   } catch {
     // no snapshot yet: the refresh draws the board
   }
+}
+
+// when the last quick check ran: the next one asks only for records changed since
+let lastQuick = 0
+
+/**
+ * The 20-second check: the app's records that changed (a session finished, asks
+ * for you, was looked at) are merged into the board at once, so it moves to its
+ * place within seconds of the app's notification, not at the next full index.
+ * Reads no transcript (about 0.1 s of work); a session the board has never seen
+ * starts a full index instead.
+ */
+async function quickTick($: $T): Promise<void> {
+  if (!isShown) return
+  const ix = await read($, indexAtom)
+  if (ix.sessions.length === 0 || ix.isLoading) return
+  const since = Math.max(lastQuick, ix.at) - 5_000
+  lastQuick = Date.now()
+  const root = $.plugin.root
+  const run = await $.process.run(['py', '-3', `${root}/scripts/sessionindex.py`, '--quick', String(since)], { timeoutMs: 30_000 })
+  if (run.exitCode !== 0) return
+  const rows = (JSON.parse(run.stdout) as { rows: Partial<Sess>[] }).rows
+  if (rows.length === 0) return
+  const byId = new Map(ix.sessions.map(s => [s.id, s]))
+  if (rows.some(r => r.id && !byId.has(r.id))) {
+    await refresh($)
+    return
+  }
+  const changed = new Map(rows.map(r => [r.id!, r]))
+  const merged = ix.sessions.map(s => (changed.has(s.id) ? { ...s, ...changed.get(s.id) } : s))
+  await setIndex($, merged, ix.at, ix.note, false, false)
+}
+
+/** You saw this session's latest: its "just asked" pulse stops. */
+async function markSeen($: $T, id: string): Promise<void> {
+  const stored = ((await $.store.get('seen')) as Record<string, number> | undefined) ?? {}
+  const next = { ...stored, [id]: Date.now() }
+  await $.store.set('seen', next)
+  await update($, seenAtom, () => next)
 }
 
 /**
@@ -252,6 +318,8 @@ async function loadStored($: $T): Promise<void> {
   if (notes) await update($, notesAtom, () => notes)
   const answered = (await $.store.get('answered')) as Answered | undefined
   if (answered) await update($, answeredAtom, () => answered)
+  const seen = (await $.store.get('seen')) as Record<string, number> | undefined
+  if (seen) await update($, seenAtom, () => seen)
 }
 
 /**
@@ -295,6 +363,14 @@ async function setDraft($: $T, key: string, patch: { pick?: string; note?: strin
   await update($, draftsAtom, d => ({ ...d, [key]: { ...(d[key] ?? {}), ...patch } }))
 }
 
+/** For a page answered some way the board cannot see (in your own words, out loud). */
+async function markAnswered($: $T, page: QPage): Promise<void> {
+  const stored = ((await $.store.get('answered')) as Answered | undefined) ?? {}
+  const next = { ...stored, [page.p]: { at: Date.now(), t: page.t, sig: pageSig(page) } }
+  await $.store.set('answered', next)
+  await update($, answeredAtom, () => next)
+}
+
 /** Sends a page's answers into the session that wrote it, and marks the page answered. */
 async function sendAnswers($: $T, s: Sess, page: QPage): Promise<void> {
   const drafts = (await read($, draftsAtom)) ?? {}
@@ -305,7 +381,7 @@ async function sendAnswers($: $T, s: Sess, page: QPage): Promise<void> {
   }
   if (!(await deliver($, s.id, text))) return
   const stored = ((await $.store.get('answered')) as Answered | undefined) ?? {}
-  const next = { ...stored, [page.p]: { at: Date.now(), t: page.t } }
+  const next = { ...stored, [page.p]: { at: Date.now(), t: page.t, sig: pageSig(page) } }
   await $.store.set('answered', next)
   await update($, answeredAtom, () => next)
   await update($, draftsAtom, d => Object.fromEntries(Object.entries(d).filter(([k]) => !k.startsWith(`${page.p}#`))))
@@ -360,6 +436,7 @@ async function openSession($: $T, id: string): Promise<void> {
   $.clock.after(5_000, () => {
     background($, update($, openingAtom, o => (o === id ? '' : o)))
   })
+  background($, markSeen($, id))
   await $.process.run(['cmd', '/c', 'start', '', `claude://claude.ai/epitaxy/${id}`])
 }
 
@@ -419,6 +496,9 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await $.command.register({ name: 'board', description: 'Open the session board' })
+    $.clock.every(20_000, () => {
+      background($, quickTick($))
+    })
     $.clock.every(120_000, () => {
       background($, tick($))
     })
@@ -463,8 +543,11 @@ export const register: Register = on => {
     const moved = (await read($, movedAtom)) ?? {}
     const opening = (await read($, openingAtom)) ?? ''
     const answered = (await read($, answeredAtom)) ?? {}
+    const seen = (await read($, seenAtom)) ?? {}
+    // just asked for you (under half an hour) and not seen since: its card pulses, as the app's notification did
+    const isFresh = (s: Sess) => isAsking(s) && now - s.last < 30 * 60_000 && (seen[s.id] ?? 0) < s.last
     const drafts = (await read($, draftsAtom)) ?? {}
-    const openPages = (s: Sess) => s.questions.filter(p => isOpenPage(p, answered))
+    const openPages = (s: Sess) => s.questions.filter(p => isOpenPage(p, answered, memo.chat.get(p.title)))
     const fullText = await read($, fullTextAtom)
     const now = Date.now()
 
@@ -476,7 +559,7 @@ export const register: Register = on => {
     // The per-index work is done once per index, not on every drawing: a
     // drawing that takes long is what shows as a blink when sessions switch.
     if (memo.at !== ix.at || memo.count !== all.length) {
-      memo = { at: ix.at, count: all.length, find: relatedFinder(all), near: new Map() }
+      memo = { at: ix.at, count: all.length, find: relatedFinder(all), near: new Map(), chat: chatAnswers(all) }
     }
     selfCli ??= await $.session.id()
     const here = all.find(s => s.cli === selfCli)
@@ -491,7 +574,7 @@ export const register: Register = on => {
     }
     const inProject = ui.project ? all.filter(s => s.project === ui.project) : all
     const st = (s: Sess) => stateOf(s, marks, now)
-    const groups: Record<State, Sess[]> = { need: [], waiting: [], working: [], week: [], earlier: [], good: [], done: [], parked: [] }
+    const groups: Record<State, Sess[]> = { need: [], waiting: [], working: [], today: [], week: [], earlier: [], good: [], done: [], parked: [] }
     // the watched session has its own place under Here, so it is not listed twice
     for (const s of [...inProject].sort(byRecent)) if (!here || s.id !== here.id) groups[st(s)].push(s)
     // a subsession whose parent is in the same list shows nested under it: the
@@ -507,7 +590,7 @@ export const register: Register = on => {
     const chips = Object.entries(weekCount).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([p]) => p)
 
     const stateWord: Record<State, string> = {
-      need: 'needs you', waiting: 'still waiting', working: 'working', week: 'this week',
+      need: 'needs you', waiting: 'still waiting', working: 'working', today: 'today', week: 'earlier this week',
       earlier: 'earlier', good: 'good enough', done: 'done', parked: 'parked',
     }
 
@@ -580,7 +663,7 @@ export const register: Register = on => {
     // newest open page shows in full; answered ones fold to a line each.
     const questionsBlock = (s: Sess, path: string) => {
       const open = openPages(s).sort((a, b) => b.t - a.t)
-      const done = s.questions.filter(p => !isOpenPage(p, answered)).sort((a, b) => b.t - a.t)
+      const done = s.questions.filter(p => !isOpenPage(p, answered, memo.chat.get(p.title))).sort((a, b) => b.t - a.t)
       const page = open[0]
       return (
         <Box flexDirection="column">
@@ -593,6 +676,9 @@ export const register: Register = on => {
                   <Box flexShrink={1}><Text bold>{page.title}</Text></Box>
                   <Button key={`qpo-${path}-${pi}`} plain onPress={() => background($, openFile($, page.p))}>
                     <Text dimColor>open page ↗</Text>
+                  </Button>
+                  <Button key={`qpm-${path}-${pi}`} plain onPress={() => background($, markAnswered($, page))}>
+                    <Text dimColor>✓ mark answered</Text>
                   </Button>
                 </Box>
                 {page.qs.map(q => {
@@ -635,7 +721,7 @@ export const register: Register = on => {
           })()}
           {done.slice(0, 3).map(p => (
             <Box key={`qd-${path}-${s.questions.indexOf(p)}`} flexDirection="row" gap={1}>
-              <Text dimColor>✓ {p.title} · answered {ago(now - (answered[p.p]?.at ?? now))} ago</Text>
+              <Text dimColor>✓ {p.title} · answered {ago(now - (answered[p.p]?.at ?? memo.chat.get(p.title) ?? now))} ago</Text>
               <Button key={`qdo-${path}-${s.questions.indexOf(p)}`} plain onPress={() => background($, openFile($, p.p))}>
                 <Text dimColor>open page ↗</Text>
               </Button>
@@ -746,8 +832,14 @@ export const register: Register = on => {
       return (
         <Box key={`c-${path}`} flexDirection="column" borderStyle="round" borderColor={borderOf(s)} paddingX={1} marginBottom={depth === 0 ? 1 : 0}>
           <Box flexDirection="row" justifyContent="space-between" gap={1}>
-            <Box flexShrink={1}>
-              <Button key={`t-${path}`} plain onPress={() => setUi(u => ({ ...u, open: u.open === path ? '' : path, tab: '' }))}>
+            <Box flexDirection="row" gap={1} flexShrink={1} alignItems="center">
+              {isFresh(s) && (Svg
+                ? <Svg source={PULSE} alt="just asked for you" width={12} height={12} isInteractive />
+                : <Text color={ACCENT}>●</Text>)}
+              <Button key={`t-${path}`} plain onPress={() => {
+                setUi(u => ({ ...u, open: u.open === path ? '' : path, tab: '' }))
+                if (isFresh(s)) background($, markSeen($, s.id))
+              }}>
                 <Text bold>{s.title}</Text>
               </Button>
             </Box>
@@ -877,7 +969,8 @@ export const register: Register = on => {
         {section('need', 'Needs you', groups.need, ACCENT)}
         {folded('waiting', 'Still waiting on you, 1-7 days', groups.waiting)}
         {section('working', 'Working', groups.working)}
-        {section('week', 'This week', groups.week)}
+        {section('today', 'Today, not touched by you yet', groups.today)}
+        {section('week', 'Earlier this week', groups.week)}
         {section('good', 'Good enough', groups.good)}
         {folded('earlier', 'Earlier this month', groups.earlier)}
         {folded('done', 'Done', groups.done)}

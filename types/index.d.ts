@@ -17,8 +17,13 @@ export type Question = {
 /** A review page a session wrote that asks questions: its path, mtime, title, questions. */
 export type QPage = { p: string; t: number; title: string; qs: Question[] }
 
-/** Pages answered from the board: path -> when, and the page's mtime then (a newer page asks again). */
-export type Answered = Record<string, { at: number; t: number }>
+/**
+ * Pages answered (from the board, or pasted into any session's chat): path ->
+ * when, and the questions' signature then. A session often rewrites its page
+ * after the answers (marking what was decided), so only NEW QUESTIONS ask
+ * again; an entry without a signature (older boards) stays answered.
+ */
+export type Answered = Record<string, { at: number; t: number; sig?: string }>
 
 /** What is picked or written on a page before it is sent, by `${page}#${q}` ('#general' for the free text). */
 export type Drafts = Record<string, { pick?: string; note?: string }>
@@ -34,6 +39,8 @@ export type Sess = {
   archived: boolean
   created: number
   last: number
+  /** when YOU last touched it (looked at it or wrote in it); 0 = never recorded */
+  touched: number
   /** the app's own post-turn verdict: completed | blocked | review_ready | null */
   appStatus: string | null
   detail: string
@@ -47,6 +54,8 @@ export type Sess = {
   media: Media[]
   artifacts: Art[]
   questions: QPage[]
+  /** review pages the person answered in this session's chat ("Answers from <title>:"), by page title */
+  answers: { title: string; at: number }[]
   /** filled from the app's live session list; false when that list was unreachable */
   running: boolean
 }
@@ -129,6 +138,7 @@ declare module 'claude-code' {
       opening: string
       answered: Answered
       drafts: Drafts
+      seen: Record<string, number>
     }
   }
 }

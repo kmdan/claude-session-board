@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { dayOf, dueBucket, parseQuick } from './board'
+import { dayOf, dueBucket, isOpenPage, pageSig, parseQuick, startOfDay, stateOf } from './board'
 
 const PANE = {
   plugin: 'session-board',
@@ -130,7 +130,58 @@ async function start($: any, on: any, store?: Record<string, unknown>, self?: st
   await $.command.run({ command: 'board' })
 }
 
-const indexRuns = () => ran.filter(a => String(a[2] ?? '').endsWith('sessionindex.py')).length
+// full index runs only (not --search or --quick)
+const indexRuns = () => ran.filter(a => String(a[2] ?? '').endsWith('sessionindex.py') && !String(a[3] ?? '').startsWith('--')).length
+
+test('needs you = touched by you today and not closed, or asking since a day; untouched activity today is Today', () => {
+  // a Wednesday afternoon
+  const now = new Date(2026, 9, 21, 15).getTime()
+  const today = startOfDay(now)
+  const s = (over: Record<string, unknown>) => ({ ...sess('x', {}), touched: 0, ...over }) as any
+  // you looked at it this morning, it finished days ago: on your plate
+  expect(stateOf(s({ touched: today + 3600_000, last: now - 3 * 24 * H }), {}, now)).toBe('need')
+  // ...unless you closed it
+  expect(stateOf(s({ touched: today + 3600_000 }), { x: { mark: 'done', at: 1 } }, now)).toBe('done')
+  // touched yesterday, quiet since: not today's
+  expect(stateOf(s({ touched: today - H, last: today - H }), {}, now)).toBe('week')
+  // moved today on its own (a subsession finishing), never touched: Today
+  expect(stateOf(s({ last: today + 2 * 3600_000 }), {}, now)).toBe('today')
+  // asked for you two days ago: still waiting
+  expect(stateOf(s({ appStatus: 'blocked', last: now - 2 * 24 * H }), {}, now)).toBe('waiting')
+})
+
+test('a session that just asked for you pulses until you open its card', async ($, on) => {
+  const saved = INDEX.sessions[0].last
+  // Parser rewrite asks right now: later than any "seen" an earlier test left (opening it counts as seen)
+  INDEX.sessions[0].last = Date.now()
+  for (const k of Object.keys(disk)) delete disk[k] // no older snapshot: this index is drawn
+  try {
+    await start($, on)
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    const pulse = () => ui.find({ type: 'Svg', alt: 'just asked for you' } as any)
+    expect(await pulse()).toBeDefined()
+    await ui.press({ key: 't-Parser rewrite' })
+    expect(await pulse()).toBeUndefined()
+    await ui.unmount()
+  } finally {
+    INDEX.sessions[0].last = saved
+  }
+})
+
+test('a question page closes when answered anywhere, and opens again only for new questions', () => {
+  const q = (n: string) => ({ q: n, to: 'me', title: `${n}. ?`, notes: true, opts: [] })
+  const page = { p: 'C:\\r\\q.html', t: 100, title: 'Review', qs: [q('Q1'), q('Q2')] }
+  // never answered: open; pasted into a chat: closed
+  expect(isOpenPage(page, {})).toBe(true)
+  expect(isOpenPage(page, {}, 50)).toBe(false)
+  // answered, then the session rewrote the page (newer mtime) with the same questions: still closed
+  const answered = { [page.p]: { at: 120, t: 100, sig: pageSig(page) } }
+  expect(isOpenPage({ ...page, t: 200 }, answered)).toBe(false)
+  // a question added: open again
+  expect(isOpenPage({ ...page, t: 300, qs: [q('Q1'), q('Q2'), q('Q3')] }, answered)).toBe(true)
+  // an answer from an older board (no signature) stays answered
+  expect(isOpenPage({ ...page, t: 300 }, { [page.p]: { at: 120, t: 100 } })).toBe(false)
+})
 
 test('quick add reads labels and one date word out of the text', () => {
   // a Wednesday at noon

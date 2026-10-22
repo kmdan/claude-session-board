@@ -23,6 +23,7 @@ data-q="Q1" data-to="...">` per question, an <h3>, radio <input value="...">
 options, "my pick" marked with <span class="rec">) are read for their questions,
 so the board can show and answer them: "questions": [{p, t, title, qs: [...]}].
 """
+import calendar
 import glob
 import html.parser
 import json
@@ -37,6 +38,8 @@ WRITE_RE = re.compile(
 # "[main 60655f9] msg" from git commit, or "60655f9 msg" from a git log --oneline after it
 COMMIT_RE = re.compile(r"\[[\w./-]+(?: \(root-commit\))? ([0-9a-f]{7,12})\] |(?:\\n|\"text\":\")([0-9a-f]{7,12}) ")
 MAX_FILES = 60
+# bump when scan_transcript records something new: cached scans of an older version are redone
+SCAN_VERSION = 5
 # any drive-letter path to a movie, image or html page, anywhere in the row (JSON-escaped)
 MEDIA_RE = re.compile(
     # bounded: unbounded, every path in a long row was walked to the row's end (20 s -> 239 s)
@@ -81,11 +84,39 @@ def conversation_text(line):
     return f"{who}: " + " ".join(" ".join(said).split()) + "\n"
 
 
+# the review page's Copy answers (and the board's Send) start "Answers from <page title>:" and a
+# line break; a title may hold colons itself ("Rig intake: open questions"), so the line break ends it
+ANSWERS_RE = re.compile(r"Answers from (.+?):[ \t]*\r?\n")
+
+
+def answered_title(text, line):
+    """A person's message that answers a review page: (page title, ms) or None."""
+    if not text.startswith("U: ") or "Answers from " not in text:
+        return None
+    try:
+        row = json.loads(line)
+    except ValueError:
+        return None
+    content = (row.get("message") or {}).get("content")
+    raw = content if isinstance(content, str) else "\n".join(
+        b.get("text", "") for b in (content or []) if isinstance(b, dict) and b.get("type") == "text")
+    m = ANSWERS_RE.search(raw)
+    if not m:
+        return None
+    try:
+        # the transcript's stamps are UTC ("...Z")
+        at = calendar.timegm(time.strptime((row.get("timestamp") or "")[:19], "%Y-%m-%dT%H:%M:%S")) * 1000
+    except (ValueError, TypeError):
+        at = 0
+    return m.group(1).strip(), at
+
+
 def scan_transcript(path, text_path):
     files = {}
     commits = []
     media = {}  # lower-cased path -> path as first seen, in order of last mention
     said = []
+    answers = []  # review pages answered in the chat: [{title, at}]
     after_commit = False  # the result row that follows a "git commit" call
     with open(path, "rb") as f:
         for raw in f:
@@ -93,6 +124,9 @@ def scan_transcript(path, text_path):
             text = conversation_text(line)
             if text:
                 said.append(text)
+                hit = answered_title(text, line)
+                if hit:
+                    answers.append({"title": hit[0], "at": hit[1]})
             if MEDIA_HINT.search(line):
                 for m in MEDIA_RE.finditer(line):
                     p = m.group(0).replace("\\\\", "\\").replace("/", "\\")
@@ -125,7 +159,11 @@ def scan_transcript(path, text_path):
         "files": [p for p, _ in top], "fileCount": len(files), "commits": commits[-12:],
         # newest mention first; existence is checked on every run, not cached
         "mediaSeen": list(reversed(list(media.values())))[:200],
-        "hasText": True,
+        # only pages this session WROTE can be its question pages: a page it merely
+        # mentioned (a shared template, another session's page) asks nothing of it
+        "pagesWritten": [p for p in files if p.lower().endswith((".html", ".htm"))],
+        "answers": answers[-50:],
+        "v": SCAN_VERSION,
     }
 
 
@@ -265,11 +303,54 @@ def project_of(cwd):
     return os.path.basename(p) or p
 
 
+def meta_paths():
+    appdata = os.environ.get("APPDATA", "")
+    return glob.glob(os.path.join(appdata, "Claude", "claude-code-sessions", "*", "*", "local_*.json"))
+
+
+def meta_fields(m):
+    """What the app's own session record says: everything here changes as a session runs."""
+    pts = m.get("postTurnSummary") or {}
+    wrap = m.get("turnWrapUp") or {}
+    return {
+        "id": m.get("sessionId"),
+        "title": m.get("title") or "Untitled session",
+        "archived": bool(m.get("isArchived")),
+        "last": m.get("lastActivityAt") or 0,
+        # when YOU last touched it: looked at it, or wrote in it
+        "touched": max(m.get("lastFocusedAt") or 0, m.get("latestUserFrameAt") or 0),
+        "appStatus": pts.get("status_category"),
+        "detail": pts.get("status_detail") or wrap.get("description") or "",
+        "needs": pts.get("needs_action") or "",
+    }
+
+
+def quick(since_ms):
+    """
+    The app records changed since `since_ms`, their fields alone: cheap enough to
+    run every few seconds (no transcript is read), so a session that just
+    finished shows on the board before the next full index.
+    """
+    rows = []
+    for mp in meta_paths():
+        try:
+            if os.stat(mp).st_mtime * 1000 < since_ms:
+                continue
+            rows.append(meta_fields(read_json(mp)))
+        except (OSError, ValueError):
+            continue
+    return rows
+
+
 def main():
     t0 = time.time()
     if sys.argv[1] == "--search":
         query = sys.stdin.buffer.read().decode("utf-8")
         sys.stdout.buffer.write(json.dumps(search(sys.argv[2], query), ensure_ascii=True).encode("ascii"))
+        return
+    if sys.argv[1] == "--quick":
+        rows = quick(float(sys.argv[2]))
+        sys.stdout.buffer.write(json.dumps({"rows": rows, "ms": int((time.time() - t0) * 1000)}, ensure_ascii=True).encode("ascii"))
         return
     cache_path = sys.argv[1]
     text_dir = os.path.join(os.path.dirname(cache_path), "text")
@@ -278,8 +359,7 @@ def main():
     except (OSError, ValueError):
         cache = {}
 
-    appdata = os.environ.get("APPDATA", "")
-    metas = glob.glob(os.path.join(appdata, "Claude", "claude-code-sessions", "*", "*", "local_*.json"))
+    metas = meta_paths()
 
     projects = os.path.join(os.path.expanduser("~"), ".claude", "projects")
     transcripts = {}
@@ -306,7 +386,7 @@ def main():
             key = f"{st.st_size}:{int(st.st_mtime)}"
             hit = cache.get(tp)
             text_path = os.path.join(text_dir, f"{cli}.txt")
-            if hit and hit.get("key") == key and hit["info"].get("hasText") and os.path.exists(text_path):
+            if hit and hit.get("key") == key and hit["info"].get("v") == SCAN_VERSION and os.path.exists(text_path):
                 info = hit["info"]
                 cached += 1
             else:
@@ -317,8 +397,13 @@ def main():
             missing += 1
         info = dict(info)
         media = existing_media(info.pop("mediaSeen", []))
+        written = {p.lower() for p in info.pop("pagesWritten", [])}
+        info.pop("v", None)
         questions = []
         for page in (m_ for m_ in media if m_["k"] == "page"):
+            # its own pages only, and never a template (a page to copy asks nobody)
+            if page["p"].lower() not in written or "template" in os.path.basename(page["p"]).lower():
+                continue
             title, qs = page_questions(page["p"])
             if qs:
                 questions.append({"p": page["p"], "t": page["t"], "title": title or os.path.basename(page["p"]), "qs": qs})
@@ -326,21 +411,13 @@ def main():
             {"url": a.get("url", ""), "title": a.get("title") or "artifact", "t": a.get("updatedAt") or 0}
             for a in (m.get("publishedArtifacts") or []) if a.get("url")
         ]
-        pts = m.get("postTurnSummary") or {}
         sp = m.get("spawnedFrom") or {}
-        wrap = m.get("turnWrapUp") or {}
         out.append({
-            "id": m.get("sessionId"),
+            **meta_fields(m),
             "cli": cli,  # what $.session.id() answers inside that session
-            "title": m.get("title") or "Untitled session",
             "cwd": m.get("cwd") or "",
             "project": project_of(m.get("originCwd") or m.get("cwd") or ""),
-            "archived": bool(m.get("isArchived")),
             "created": m.get("createdAt") or 0,
-            "last": m.get("lastActivityAt") or 0,
-            "appStatus": pts.get("status_category"),
-            "detail": pts.get("status_detail") or wrap.get("description") or "",
-            "needs": pts.get("needs_action") or "",
             "parent": sp.get("sessionId"),
             "branch": m.get("branch") or "",
             "transcript": tp or "",

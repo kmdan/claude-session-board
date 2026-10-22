@@ -1,7 +1,7 @@
 // Pure board logic: no `$`, so the tests drive it directly.
 import type { Answered, Drafts, Mark, Marks, QPage, Sess } from '../types'
 
-export type State = 'need' | 'waiting' | 'working' | 'week' | 'earlier' | 'good' | 'done' | 'parked'
+export type State = 'need' | 'waiting' | 'working' | 'today' | 'week' | 'earlier' | 'good' | 'done' | 'parked'
 
 const DAY = 86_400_000
 export const WEEK = 7 * DAY
@@ -30,21 +30,38 @@ function hash(s: string): number {
 export const projectLabel = (p: string): string => names[p]?.label ?? p
 export const projectColor = (p: string): string => names[p]?.color ?? PALETTE[hash(p) % PALETTE.length]
 
+/** Local midnight of the day `now` falls on. */
+export function startOfDay(now: number): number {
+  const d = new Date(now)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
+/** The app says the session stopped to wait for the person. */
+export function isAsking(s: Sess): boolean {
+  return s.appStatus === 'blocked' || s.appStatus === 'review_ready'
+}
+
 /**
- * A hand-set mark wins. Otherwise: running is working; a session the app says
- * is blocked or ready for review is "needs you" for its first day and
- * "still waiting" for the rest of the week (a week of them at once is too
- * many to act on); archived or a month quiet is parked.
+ * A hand-set mark wins. Otherwise: running is working. "Needs you" is what
+ * you touched today and did not close (it is on your plate), and what started
+ * asking for you in the last day; asking older than that, within the week, is
+ * "still waiting". Archived or a month quiet is parked. The rest is sorted by
+ * when it last moved: today, earlier this week, earlier.
  */
 export function stateOf(s: Sess, marks: Marks, now: number): State {
   const m = marks[s.id]?.mark
   if (m) return m === 'working' ? 'working' : m
   if (s.running) return 'working'
   const age = now - s.last
-  if (!s.archived && age < WEEK && (s.appStatus === 'blocked' || s.appStatus === 'review_ready')) {
-    return age < DAY ? 'need' : 'waiting'
+  const today = startOfDay(now)
+  if (!s.archived) {
+    if (isAsking(s) && age < DAY) return 'need'
+    if ((s.touched ?? 0) >= today) return 'need'
+    if (isAsking(s) && age < WEEK) return 'waiting'
   }
   if (s.archived || age >= MONTH) return 'parked'
+  if (s.last >= today) return 'today'
   return age < WEEK ? 'week' : 'earlier'
 }
 
@@ -172,10 +189,28 @@ export function baseName(path: string): string {
   return cut < 0 ? path : path.slice(cut + 1)
 }
 
-/** A review page still asks: never answered from the board, or rewritten since. */
-export function isOpenPage(page: QPage, answered: Answered): boolean {
+/** What a page asks, as one string: changes when a question is added, removed or reworded. */
+export function pageSig(page: QPage): string {
+  return page.qs.map(q => `${q.q}|${q.title}`).join('\n')
+}
+
+/**
+ * A review page still asks when it was never answered, neither from the board
+ * nor pasted into a chat (`chatAt`, by its title), or when its questions
+ * changed since the recorded answer. A page rewritten after the answers, with
+ * the same questions, stays answered.
+ */
+export function isOpenPage(page: QPage, answered: Answered, chatAt?: number): boolean {
   const a = answered[page.p]
-  return !a || a.t < page.t
+  if (a) return a.sig !== undefined && a.sig !== pageSig(page)
+  return chatAt === undefined
+}
+
+/** The latest time each page title was answered in any session's chat. */
+export function chatAnswers(all: Sess[]): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const s of all) for (const a of s.answers ?? []) out.set(a.title, Math.max(out.get(a.title) ?? 0, a.at))
+  return out
 }
 
 /**

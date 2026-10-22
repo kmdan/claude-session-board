@@ -7,10 +7,15 @@ lot of sessions at once and lose track of them, ADHD brains included.
 ## What it shows
 
 - **Here**: the session you are in, pinned at the top.
-- **Needs you**: sessions that finished and are waiting on you, for their first day.
-  Older ones fold into **Still waiting on you**, so the top list stays short.
-- **Working**, **This week**, **Good enough**, and folded **Earlier**, **Done**
-  and a **Parking lot** for anything a month quiet or archived.
+- **Needs you**: everything you touched today and did not close, and anything
+  that started asking for you in the last day. A session that just asked
+  **pulses** until you open its card, like the app's notification. Older asks
+  fold into **Still waiting on you**, so the top list stays short.
+- **Working**, **Today** (moved today, not touched by you yet), **Earlier this
+  week**, **Good enough**, and folded **Earlier**, **Done** and a **Parking
+  lot** for anything a month quiet or archived.
+- It checks the app's own session records every 20 seconds, so a session that
+  just finished moves to its place within seconds.
 - Every card: its status line, what it needs from you, and one tab at a time
   for its **media** (movies, images, HTML pages and published artifacts it made),
   **files** it wrote, **related** sessions and your **notes**.
