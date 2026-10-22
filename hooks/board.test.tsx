@@ -42,6 +42,9 @@ const ran: string[][] = []
 const sent: { session_id: string; message: string }[] = []
 let opened = 0
 let placed = true // what the surface answers to ui.open: false = nothing drew the pane
+let closed = 0
+// what the app reports of the board's pane: none, or one it keeps open but hidden
+let panes: { id: string; title: string; isShown: boolean; isFocused: boolean; isPlaced: boolean }[] = []
 const logged: string[] = []
 const searched: string[] = []
 
@@ -66,7 +69,11 @@ function engine(on: any, store: Record<string, unknown> = {}, self = 'cli-elsewh
     if (!disk[e.path]) throw new Error('ENOENT')
     return { value: { kind: 'file', size: disk[e.path].text.length, mtimeMs: disk[e.path].mtimeMs, isLink: false } }
   })
-  on('ui.close', () => ({ value: undefined }))
+  on('ui.close', () => {
+    closed += 1
+    return { value: undefined }
+  })
+  on('ui.panes', () => ({ value: panes }))
   on('command.register', () => ({ value: { command: 'board' } }))
   on('ui.open', () => {
     opened += 1
@@ -170,41 +177,35 @@ test('the watched session is listed once, under Here, and the header counts what
   await ui.unmount()
 })
 
-test('the button above the prompt opens the board, then steps aside', async ($, on) => {
+const BAND = {
+  plugin: 'session-board', component: 'AbovePrompt', requestId: 'band', surface: 'desktop',
+  props: { hasSurvey: false, isWorking: false, bodyColumns: 80, view: {} },
+} as any
+
+test('the button above the prompt is always there, the board open or not', async ($, on) => {
   engine(on)
-  // stands for the app's own band, drawn once the button steps aside
-  on('ui.render', ($: any, e: any) => {
-    const { Text } = $.ui.resolve(e)
-    return <Text>engine band</Text>
-  })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  const band = await $.ui.mount({
-    plugin: 'session-board', component: 'AbovePrompt', requestId: 'band', surface: 'desktop',
-    props: { hasSurvey: false, bodyColumns: 80, view: {} },
-  } as any)
-  // placed at the start: the button stays away
-  expect(await band.find({ key: 'open-board' })).toBeUndefined()
+  const band = await $.ui.mount(BAND)
+  expect(await band.find({ key: 'open-board' })).toBeDefined()
   await band.unmount()
 })
 
-test('while no surface placed the board, the button stays, and a press opens it', async ($, on) => {
+test('a board the app only hid is closed and opened anew, so it shows again', async ($, on) => {
   engine(on)
-  on('ui.render', ($: any, e: any) => {
-    const { Text } = $.ui.resolve(e)
-    return <Text>engine band</Text>
-  })
-  placed = false
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  const band = await $.ui.mount({
-    plugin: 'session-board', component: 'AbovePrompt', requestId: 'band', surface: 'desktop',
-    props: { hasSurvey: false, bodyColumns: 80, view: {} },
-  } as any)
-  expect(await band.find({ key: 'open-board' })).toBeDefined()
-  placed = true
+  const band = await $.ui.mount(BAND)
+  // the person "closed" it: the app keeps it open, hidden
+  panes = [{ id: 'session-board', title: 'Sessions', isShown: false, isFocused: false, isPlaced: true }]
   opened = 0
+  closed = 0
   await band.press({ key: 'open-board' })
-  expect(opened).toBe(1)
-  expect(await band.find({ key: 'open-board' })).toBeUndefined()
+  expect([closed, opened]).toEqual([1, 1])
+  // shown already: just opened (focused), never closed
+  panes = [{ id: 'session-board', title: 'Sessions', isShown: true, isFocused: false, isPlaced: true }]
+  closed = 0
+  await band.press({ key: 'open-board' })
+  expect(closed).toBe(0)
+  panes = []
   await band.unmount()
 })
 

@@ -40,8 +40,6 @@ const uiAtom = atom({ plugin: 'session-board', key: 'ui' } as const,
   { query: '', project: '', open: '', limits: {}, shown: {}, view: 'board', focus: '', tab: '' } as Ui)
 const marksAtom = atom({ plugin: 'session-board', key: 'marks' } as const, {} as Marks)
 const notesAtom = atom({ plugin: 'session-board', key: 'notes' } as const, {} as Notes)
-// drives the "Sessions" button above the prompt: shown only while the board is closed
-const paneOpenAtom = atom({ plugin: 'session-board', key: 'paneOpen' } as const, false)
 const fullTextAtom = atom({ plugin: 'session-board', key: 'fullText' } as const,
   { query: '', hits: [], isLoading: false, note: '' } as FullText)
 const movedAtom = atom({ plugin: 'session-board', key: 'moved' } as const, {} as Moved)
@@ -313,10 +311,12 @@ async function loadProjectNames($: $T): Promise<void> {
 async function openBoard($: $T): Promise<void> {
   await loadProjectNames($)
   await loadSnapshot($)
-  // the button above the prompt stays while no surface placed the pane
-  const { isPlaced } = await $.ui.open({ id: PANE, title: TITLE })
+  // Closing the board in the app may only hide it: it stays open, and opening
+  // an open pane changes nothing. A hidden one is closed and opened anew.
+  const mine = (await $.ui.panes().catch(() => [])).find(p => p.id === PANE)
+  if (mine && !mine.isShown) await $.ui.close({ id: PANE }).catch(() => undefined)
+  const { isPlaced } = await $.ui.open({ id: PANE, title: TITLE, focus: true })
   isShown = isPlaced
-  await update($, paneOpenAtom, () => isPlaced)
   background($, loadStored($))
   background($, openFresh($))
 }
@@ -343,17 +343,15 @@ export const register: Register = on => {
   })
 
   on('ui.close', async ($, e, next) => {
-    if (e.id === PANE) {
-      isShown = false
-      await update($, paneOpenAtom, () => false)
-    }
+    if (e.id === PANE) isShown = false
     return next(e)
   })
 
   // The app's own top-right toolbar takes no plugin buttons (there is no API
-  // for it); the band above the prompt is the nearest place.
+  // for it); the band above the prompt is the nearest place. The button is
+  // always there: the app can hide the board without telling the plugin.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey || (await read($, paneOpenAtom))) return next(e)
+    if (e.props.hasSurvey) return next(e)
     const { Box, Button } = $.ui.resolve(e)
     return (
       <Box>

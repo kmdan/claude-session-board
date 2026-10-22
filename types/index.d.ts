@@ -84,7 +84,7 @@ export type Moved = Record<string, number>
 declare module 'claude-code' {
   interface PluginState {
     'session-board': {
-      index: Index; ui: Ui; marks: Marks; notes: Notes; paneOpen: boolean; fullText: FullText; moved: Moved
+      index: Index; ui: Ui; marks: Marks; notes: Notes; fullText: FullText; moved: Moved
     }
   }
 }
