@@ -154,3 +154,70 @@ export function baseName(path: string): string {
   const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
   return cut < 0 ? path : path.slice(cut + 1)
 }
+
+/** A local calendar day as `YYYY-MM-DD`. */
+export function dayOf(t: number): string {
+  const d = new Date(t)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+const WEEKDAYS_FULL = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+
+/**
+ * Reads a quick-add line the Todoist way: `@word` is a label, and one date
+ * word sets the due day (today, tomorrow/tmr, a weekday = its next one,
+ * `3d` = in three days, or `2026-11-04`). Both leave the text.
+ */
+export function parseQuick(line: string, now: number): { text: string; labels: string[]; due?: string } {
+  const labels: string[] = []
+  let due: string | undefined
+  const kept: string[] = []
+  const day = new Date(now)
+  day.setHours(12, 0, 0, 0)
+  for (const word of line.trim().split(/\s+/)) {
+    const low = word.toLowerCase()
+    const label = /^@([\w-]+)$/.exec(word)
+    const inDays = /^(\d{1,3})d$/.exec(low)
+    const weekday = Math.max(WEEKDAYS.indexOf(low), WEEKDAYS_FULL.indexOf(low))
+    if (label) {
+      labels.push(label[1])
+    } else if (due === undefined && (low === 'today' || low === 'tod')) {
+      due = dayOf(day.getTime())
+    } else if (due === undefined && (low === 'tomorrow' || low === 'tmr')) {
+      due = dayOf(day.getTime() + 86_400_000)
+    } else if (due === undefined && inDays) {
+      due = dayOf(day.getTime() + Number(inDays[1]) * 86_400_000)
+    } else if (due === undefined && /^\d{4}-\d{2}-\d{2}$/.test(low)) {
+      due = low
+    } else if (due === undefined && weekday >= 0) {
+      const ahead = (weekday - day.getDay() + 7) % 7 || 7
+      due = dayOf(day.getTime() + ahead * 86_400_000)
+    } else {
+      kept.push(word)
+    }
+  }
+  return { text: kept.join(' '), labels, due }
+}
+
+export type DueBucket = 'overdue' | 'today' | 'upcoming' | 'none'
+
+export function dueBucket(due: string | undefined, now: number): DueBucket {
+  if (!due) return 'none'
+  const today = dayOf(now)
+  return due < today ? 'overdue' : due === today ? 'today' : 'upcoming'
+}
+
+/** How a due day reads on a todo: "today", "tomorrow", "Fri", "Nov 4", "3 d late". */
+export function dueWord(due: string, now: number): string {
+  const today = new Date(now)
+  today.setHours(12, 0, 0, 0)
+  const [y, m, d] = due.split('-').map(Number)
+  const at = new Date(y, m - 1, d, 12)
+  const days = Math.round((at.getTime() - today.getTime()) / 86_400_000)
+  if (days < 0) return `${-days} d late`
+  if (days === 0) return 'today'
+  if (days === 1) return 'tomorrow'
+  if (days < 7) return at.toLocaleDateString('en', { weekday: 'short' })
+  return at.toLocaleDateString('en', { month: 'short', day: 'numeric' })
+}

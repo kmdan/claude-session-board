@@ -1,5 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
+import { dayOf, dueBucket, parseQuick } from './board'
+
 const PANE = {
   plugin: 'session-board',
   component: 'Pane',
@@ -47,6 +49,7 @@ let closed = 0
 let panes: { id: string; title: string; isShown: boolean; isFocused: boolean; isPlaced: boolean }[] = []
 const logged: string[] = []
 const searched: string[] = []
+const started: { title: string; prompt: string }[] = []
 
 // files the board writes (its snapshot), shared by every "session" of a test
 const disk: Record<string, { text: string; mtimeMs: number }> = {}
@@ -98,6 +101,10 @@ function engine(on: any, store: Record<string, unknown> = {}, self = 'cli-elsewh
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('mcp.call', (_: unknown, e: any) => {
+    if (e.tool === 'start_session') {
+      started.push(e.args)
+      return { value: { isError: false, content: [{ type: 'text', text: 'Started local_00000000-0000-0000-0000-000000000001' }] } }
+    }
     if (e.tool === 'send_message') {
       sent.push(e.args)
       return { value: { isError: false, content: [{ type: 'text', text: 'delivered' }] } }
@@ -113,6 +120,57 @@ async function start($: any, on: any, store?: Record<string, unknown>, self?: st
 }
 
 const indexRuns = () => ran.filter(a => String(a[2] ?? '').endsWith('sessionindex.py')).length
+
+test('quick add reads labels and one date word out of the text', () => {
+  // a Wednesday at noon
+  const wed = new Date(2026, 9, 21, 12).getTime()
+  expect(parseQuick('fix the export @ops @client fri', wed)).toEqual({ text: 'fix the export', labels: ['ops', 'client'], due: '2026-10-23' })
+  expect(parseQuick('call back tomorrow', wed).due).toBe('2026-10-22')
+  expect(parseQuick('review today', wed).due).toBe('2026-10-21')
+  expect(parseQuick('ship it 3d', wed).due).toBe('2026-10-24')
+  // a weekday that is today means next week's, as in Todoist
+  expect(parseQuick('standup wed', wed).due).toBe('2026-10-28')
+  expect(parseQuick('due 2026-11-04', wed).due).toBe('2026-11-04')
+  // only the first date word is a date; words that only look like one stay text
+  expect(parseQuick('today and tomorrow', wed)).toEqual({ text: 'and tomorrow', labels: [], due: '2026-10-21' })
+  expect(parseQuick('wednesdays notes', wed)).toEqual({ text: 'wednesdays notes', labels: [], due: undefined })
+  expect([dueBucket('2026-10-20', wed), dueBucket(dayOf(wed), wed), dueBucket('2026-10-30', wed), dueBucket(undefined, wed)])
+    .toEqual(['overdue', 'today', 'upcoming', 'none'])
+})
+
+test('the Todos view: Inbox quick add, Today, label filter, tick, and a session from a todo', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  await start($, on, store)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'v-todos' })
+  await ui.input({ key: 'todo-add', text: 'check the cache size @ops today' })
+  await ui.input({ key: 'todo-add', text: 'write the release notes @docs' })
+  const inbox = (store.notes as Record<string, { id: string; text: string; labels: string[]; due?: string }[]>)._inbox
+  expect(inbox.map(n => [n.text, n.labels, n.due !== undefined])).toEqual([
+    ['check the cache size', ['ops'], true], ['write the release notes', ['docs'], false],
+  ])
+  expect(await ui.find({ type: 'Text', text: /^Today \(1\)/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^No date \(1\)/ })).toBeDefined()
+  expect(await ui.find({ key: 'v-todos' })).toMatchObject({ props: { label: 'Todos · 1' } })
+
+  // the label chip filters
+  await ui.press({ key: 'l-docs' })
+  expect(await ui.find({ type: 'Text', text: /^Today/ })).toBeUndefined()
+  await ui.press({ key: 'l-docs' })
+
+  // tick: it leaves the open lists and folds into Done
+  await ui.press({ key: `nd-${inbox[0].id}` })
+  expect(await ui.find({ type: 'Text', text: /^Today/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Done \(1\) · show/ })).toBeDefined()
+
+  // an Inbox todo becomes a session, briefed with its text
+  started.length = 0
+  await ui.press({ key: `nn-${inbox[1].id}` })
+  expect(started.map(s => s.prompt)).toEqual(['write the release notes'])
+  const after = (store.notes as Record<string, { sent?: string; session?: string }[]>)._inbox[1]
+  expect([after.sent, after.session]).toEqual(['session', 'local_00000000-0000-0000-0000-000000000001'])
+  await ui.unmount()
+})
 
 test('a session start opens the board; the first indexes, a second reads its snapshot', async ($, on) => {
   logged.length = 0

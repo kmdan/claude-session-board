@@ -3,7 +3,8 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { FullText, Index, Mark, Marks, Media, Moved, Note, Notes, Sess, TextHit, Ui } from '../types'
 import {
-  ago, baseName, byRecent, matches, overlaps, projectColor, projectLabel, related, setMark, setProjectNames, stateOf,
+  ago, baseName, byRecent, dueBucket, dueWord, matches, overlaps, parseQuick, projectColor, projectLabel, related,
+  setMark, setProjectNames, stateOf,
 } from './board'
 import type { ProjectNames, State } from './board'
 
@@ -37,7 +38,9 @@ const DOT: Record<State, string> = {
 const indexAtom = atom({ plugin: 'session-board', key: 'index' } as const,
   { sessions: [], at: 0, note: 'not indexed yet', isLoading: false } as Index)
 const uiAtom = atom({ plugin: 'session-board', key: 'ui' } as const,
-  { query: '', project: '', open: '', limits: {}, shown: {}, view: 'board', focus: '', tab: '' } as Ui)
+  { query: '', project: '', open: '', limits: {}, shown: {}, view: 'board', focus: '', tab: '', label: '' } as Ui)
+// where todos that belong to no session yet are kept
+const INBOX = '_inbox'
 const marksAtom = atom({ plugin: 'session-board', key: 'marks' } as const, {} as Marks)
 const notesAtom = atom({ plugin: 'session-board', key: 'notes' } as const, {} as Notes)
 const fullTextAtom = atom({ plugin: 'session-board', key: 'fullText' } as const,
@@ -269,6 +272,44 @@ async function sendNote($: $T, s: Sess, n: Note, how: 'prompt' | 'subsession'): 
   $.ui.toast(how === 'prompt' ? `Sent to "${s.title}"` : `Asked "${s.title}" to start a subsession`)
 }
 
+/** Adds a todo from a quick-add line: `@label` and one date word are read out of it. */
+async function addTodo($: $T, owner: string, line: string): Promise<void> {
+  const now = Date.now()
+  const { text, labels, due } = parseQuick(line, now)
+  if (!text) return
+  await editNotes($, owner, list => [...list, { id: `${now}`, text, at: now, labels, due }])
+}
+
+async function toggleDone($: $T, owner: string, id: string): Promise<void> {
+  await editNotes($, owner, list => list.map(n => (n.id === id ? { ...n, done: !n.done } : n)))
+}
+
+/**
+ * Turns an Inbox todo into a real session: a new linked session of the one
+ * this board is drawn in, briefed with the todo. The todo stays, marked.
+ */
+async function startFromTodo($: $T, n: Note): Promise<void> {
+  try {
+    const res = await $.mcp.call('ccd_session', 'start_session', {
+      initiation: 'user_asked',
+      title: n.text.slice(0, 58),
+      prompt: n.text,
+      background: 'Started from a todo on the session board. The todo text is the whole brief so far; '
+        + 'ask what is unclear before doing anything large.',
+    })
+    const block = res.content.find(c => c.type === 'text') as { text: string } | undefined
+    if (res.isError) {
+      $.ui.toast(`No session started: ${(block?.text ?? '').slice(0, 200)}`)
+      return
+    }
+    const id = /local_[0-9a-f-]{36}/.exec(block?.text ?? '')?.[0]
+    await editNotes($, INBOX, list => list.map(x => (x.id === n.id ? { ...x, sent: 'session', session: id } : x)))
+    $.ui.toast(`Session started: ${n.text.slice(0, 60)}`)
+  } catch (err) {
+    $.ui.toast(`No session started: ${String(err).slice(0, 200)}`)
+  }
+}
+
 async function openSession($: $T, id: string): Promise<void> {
   await $.process.run(['cmd', '/c', 'start', '', `claude://claude.ai/epitaxy/${id}`])
 }
@@ -423,34 +464,68 @@ export const register: Register = on => {
       </Box>
     )
 
+    // One todo: tick box, text, @labels and its due day, then what it can
+    // become. `owner` is its session's id, or INBOX; `s` the session, if any.
+    const todoRow = (owner: string, n: Note, s: Sess | undefined, withSession: boolean) => {
+      const bucket = dueBucket(n.due, now)
+      const isLate = !n.done && (bucket === 'overdue' || bucket === 'today')
+      return (
+        <Box key={`n-${n.id}`} flexDirection="column">
+          <Box flexDirection="row" gap={1}>
+            <Button key={`nd-${n.id}`} plain onPress={() => background($, toggleDone($, owner, n.id))}>
+              <Text dimColor={n.done}>{n.done ? '☑' : '☐'}</Text>
+            </Button>
+            <Box flexShrink={1}>
+              <Text dimColor={n.done || n.sent !== undefined} strikethrough={n.done}>
+                {n.text}
+                {(n.labels ?? []).map(l => <Text key={`nl-${n.id}-${l}`} dimColor> @{l}</Text>)}
+                {n.due && <Text color={isLate ? ACCENT : undefined} dimColor={!isLate}>  {dueWord(n.due, now)}</Text>}
+                {n.sent && <Text dimColor>  (sent as {n.sent})</Text>}
+              </Text>
+            </Box>
+          </Box>
+          {!n.done && (
+            <Box flexDirection="row" gap={1} marginLeft={2}>
+              {withSession && s && (
+                <Button key={`ng-${n.id}`} plain onPress={() => setUi(u => ({ ...u, view: 'focus', focus: s.id, open: '', tab: 'notes' }))}>
+                  <Text color={projectColor(s.project)}>● </Text><Text dimColor>{s.title}</Text>
+                </Button>
+              )}
+              {s && (
+                <Button key={`np-${n.id}`} plain onPress={() => background($, sendNote($, s, n, 'prompt'))}>
+                  <Text dimColor>→ prompt</Text>
+                </Button>
+              )}
+              {s && (
+                <Button key={`ns-${n.id}`} plain onPress={() => background($, sendNote($, s, n, 'subsession'))}>
+                  <Text dimColor>→ subsession</Text>
+                </Button>
+              )}
+              {!s && owner === INBOX && !n.session && (
+                <Button key={`nn-${n.id}`} plain onPress={() => background($, startFromTodo($, n))}>
+                  <Text dimColor>→ new session</Text>
+                </Button>
+              )}
+              <Button key={`nx-${n.id}`} plain onPress={() => background($, editNotes($, owner, l => l.filter(x => x.id !== n.id)))}>
+                <Text dimColor>remove</Text>
+              </Button>
+            </Box>
+          )}
+        </Box>
+      )
+    }
+
     const noteBlock = (s: Sess) => {
       const list = notes[s.id] ?? []
       return (
         <Box flexDirection="column">
-          {list.map(n => (
-            <Box key={`n-${n.id}`} flexDirection="column">
-              <Text dimColor={n.sent !== undefined}>• {n.text}{n.sent ? `  (sent as ${n.sent})` : ''}</Text>
-              <Box flexDirection="row" gap={1}>
-                <Button key={`np-${n.id}`} plain onPress={() => background($, sendNote($, s, n, 'prompt'))}>
-                  <Text dimColor>→ prompt</Text>
-                </Button>
-                <Button key={`ns-${n.id}`} plain onPress={() => background($, sendNote($, s, n, 'subsession'))}>
-                  <Text dimColor>→ subsession</Text>
-                </Button>
-                <Button key={`nx-${n.id}`} plain onPress={() => background($, editNotes($, s.id, l => l.filter(x => x.id !== n.id)))}>
-                  <Text dimColor>remove</Text>
-                </Button>
-              </Box>
-            </Box>
-          ))}
+          {list.filter(n => !n.done).map(n => todoRow(s.id, n, s, false))}
+          {list.filter(n => n.done).map(n => todoRow(s.id, n, s, false))}
           <Input
             key={`na-${s.id}`}
-            placeholder="Add a quick note…"
+            placeholder="Add a todo…  @label  today / fri / 3d"
             submitLabel="Add"
-            onSubmit={v => {
-              const text = v.trim()
-              if (text) background($, editNotes($, s.id, l => [...l, { id: `${Date.now()}`, text, at: Date.now() }]))
-            }}
+            onSubmit={v => background($, addTodo($, s.id, v))}
           />
         </Box>
       )
@@ -515,8 +590,11 @@ export const register: Register = on => {
       if (s.fileCount) meta.push(`${s.fileCount} files`)
       if (s.media.length) meta.push(`${s.media.length} media`)
       if (s.artifacts.length) meta.push(`${s.artifacts.length} pages`)
-      const noteCount = (notes[s.id] ?? []).filter(n => !n.sent).length
-      if (noteCount) meta.push(`${noteCount} notes`)
+      const openTodos = (notes[s.id] ?? []).filter(n => !n.done && !n.sent)
+      if (openTodos.length) {
+        const dueNow = openTodos.filter(n => ['overdue', 'today'].includes(dueBucket(n.due, now))).length
+        meta.push(`${openTodos.length} todo${openTodos.length > 1 ? 's' : ''}${dueNow ? ` (${dueNow} due)` : ''}`)
+      }
       const parent = s.parent ? byId.get(s.parent) : undefined
       if (parent && depth === 0) meta.push(`↰ from ${parent.title}`)
       const clash = isOpen ? overlaps(s, all, marks, now) : []
@@ -527,7 +605,8 @@ export const register: Register = on => {
       if (s.media.length + s.artifacts.length) tabs.push({ key: 'media', label: `Media ${s.media.length + s.artifacts.length}` })
       if (s.fileCount) tabs.push({ key: 'files', label: `Files ${s.fileCount}` })
       if (rel.length) tabs.push({ key: 'related', label: `Related ${rel.length}${clash.length ? ' ⚠' : ''}` })
-      tabs.push({ key: 'notes', label: allNotes.length ? `Notes ${allNotes.length}` : '+ Note' })
+      const openCount = allNotes.filter(n => !n.done).length
+      tabs.push({ key: 'notes', label: allNotes.length ? `Todos ${openCount}` : '+ Todo' })
       const tab = isOpen ? ui.tab : ''
       const toggleTab = (k: Ui['tab']) => setUi(u => ({ ...u, tab: u.tab === k ? '' : k }))
       return (
@@ -677,6 +756,61 @@ export const register: Register = on => {
       )
     }
 
+    // Every open todo, the Todoist way: Overdue / Today / Upcoming / No date,
+    // label chips to filter, the Inbox's quick add on top. Done ones fold away.
+    type Row = { owner: string; n: Note; s?: Sess }
+    const allTodos: Row[] = Object.entries(notes).flatMap(([owner, list]) =>
+      list.map(n => ({ owner, n, s: owner === INBOX ? undefined : byId.get(owner) })))
+    const labelsInUse = [...new Set(allTodos.filter(r => !r.n.done).flatMap(r => r.n.labels ?? []))].sort()
+    const dueToday = allTodos.filter(r => !r.n.done && ['overdue', 'today'].includes(dueBucket(r.n.due, now))).length
+
+    const todosView = () => {
+      const shown = allTodos.filter(r =>
+        (!ui.label || (r.n.labels ?? []).includes(ui.label))
+        && (!ui.project || r.owner === INBOX || r.s?.project === ui.project))
+      const open = shown.filter(r => !r.n.done)
+      const done = shown.filter(r => r.n.done)
+      const byDue = (a: Row, b: Row) => (a.n.due ?? '9999').localeCompare(b.n.due ?? '9999') || a.n.at - b.n.at
+      const group = (key: string, title: string, rows: Row[], color?: string) => rows.length === 0 ? null : (
+        <Box key={`tg-${key}`} flexDirection="column" marginBottom={1}>
+          <Text bold color={color}>{title} ({rows.length})</Text>
+          {rows.sort(byDue).map(r => todoRow(r.owner, r.n, r.s, true))}
+        </Box>
+      )
+      return (
+        <Box flexDirection="column">
+          <Input
+            key="todo-add"
+            placeholder="Inbox: add a todo…  @label  today / fri / 3d"
+            submitLabel="Add"
+            onSubmit={v => background($, addTodo($, INBOX, v))}
+          />
+          {labelsInUse.length > 0 && (
+            <Box flexDirection="row" flexWrap="wrap" gap={1} marginY={1}>
+              <Button key="l-all" variant={ui.label === '' ? 'primary' : 'secondary'} label="All labels"
+                onPress={() => setUi(u => ({ ...u, label: '' }))} />
+              {labelsInUse.map(l => (
+                <Button key={`l-${l}`} variant={ui.label === l ? 'primary' : 'secondary'} label={`@${l}`}
+                  onPress={() => setUi(u => ({ ...u, label: u.label === l ? '' : l }))} />
+              ))}
+            </Box>
+          )}
+          {open.length === 0 && <Text dimColor>No open todos{ui.label ? ` with @${ui.label}` : ''}. Add one above, or on any session's card.</Text>}
+          {group('overdue', 'Overdue', open.filter(r => dueBucket(r.n.due, now) === 'overdue'), ACCENT)}
+          {group('today', 'Today', open.filter(r => dueBucket(r.n.due, now) === 'today'), ACCENT)}
+          {group('upcoming', 'Upcoming', open.filter(r => dueBucket(r.n.due, now) === 'upcoming'))}
+          {group('none', 'No date', open.filter(r => dueBucket(r.n.due, now) === 'none'))}
+          {done.length > 0 && (ui.shown.todosDone
+            ? group('done', 'Done', done)
+            : (
+              <Button key="show-todos-done" plain onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, todosDone: true } }))}>
+                <Text dimColor>Done ({done.length}) · show</Text>
+              </Button>
+            ))}
+        </Box>
+      )
+    }
+
     const focusView = () => {
       const s = byId.get(ui.focus)
       if (!s) return <Text dimColor>That session is not in the index.</Text>
@@ -732,7 +866,10 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" paddingX={1}>
         <Box flexDirection="row" justifyContent="space-between">
-          <Text bold>{topLevel(groups.need).length} need you · {topLevel(groups.waiting).length} waiting · {topLevel(groups.working).length} working · {topLevel(groups.good).length} good enough</Text>
+          <Text bold>
+            {topLevel(groups.need).length} need you · {topLevel(groups.waiting).length} waiting · {topLevel(groups.working).length} working · {topLevel(groups.good).length} good enough
+            {dueToday > 0 && <Text color={ACCENT}> · {dueToday} due</Text>}
+          </Text>
           <Box flexDirection="row" gap={1} alignItems="center">
             {ix.isLoading && Svg && <Svg source={PULSE} alt="indexing" width={12} height={12} isInteractive />}
             <Button key="refresh" plain onPress={() => background($, refresh($))}>
@@ -752,6 +889,8 @@ export const register: Register = on => {
         />
         <Box flexDirection="row" flexWrap="wrap" gap={1} marginY={1}>
           <Button key="v-board" variant={ui.view === 'board' || ui.view === 'focus' ? 'primary' : 'secondary'} label="Board" onPress={() => setUi(u => ({ ...u, view: 'board' }))} />
+          <Button key="v-todos" variant={ui.view === 'todos' ? 'primary' : 'secondary'}
+            label={dueToday > 0 ? `Todos · ${dueToday}` : 'Todos'} onPress={() => setUi(u => ({ ...u, view: 'todos' }))} />
           <Button key="v-media" variant={ui.view === 'media' ? 'primary' : 'secondary'} label="Media" onPress={() => setUi(u => ({ ...u, view: 'media' }))} />
           <Text dimColor>|</Text>
           <Button key="p-all" variant={ui.project === '' ? 'primary' : 'secondary'} label="All" onPress={() => setUi(u => ({ ...u, project: '' }))} />
@@ -762,6 +901,7 @@ export const register: Register = on => {
         </Box>
 
         {ui.view === 'media' ? mediaView()
+          : ui.view === 'todos' ? todosView()
           : ui.view === 'focus' ? focusView()
           : ui.query !== '' ? (
             <Box flexDirection="column">

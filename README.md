@@ -23,8 +23,13 @@ lot of sessions at once and lose track of them, ADHD brains included.
 - Mark a session **Good enough**, **Done**, **Park** or **Working**. Nothing is
   archived or deleted; the marks are the board's own.
 - **Open** a session, open a file or show it in Explorer.
-- Add a **quick note** to a session, then send it as the session's next
+- Keep **todos** on a session, Todoist-style: type `check the cache @ops fri`
+  and `@ops` becomes a label and `fri` the due day (`today`, `tomorrow`, a
+  weekday, `3d` or `2026-11-04`). Tick them off; send one as the session's next
   **prompt**, or ask that session to start a **subsession** for it.
+- The **Todos** view lists every open todo by **Overdue / Today / Upcoming /
+  No date**, with label chips to filter. Its **Inbox** takes todos that belong
+  to no session yet, and **→ new session** turns one into a session.
 - **Search** titles, files, media, commits; press **Enter** to also search
   **what was said** in every conversation.
 

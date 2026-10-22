@@ -45,9 +45,24 @@ export type Mark = 'working' | 'good' | 'done' | 'parked'
 
 export type Marks = Record<string, { mark: Mark; at: number }>
 
-/** A quick note on a session; `sent` says where it went, if anywhere. */
-export type Note = { id: string; text: string; at: number; sent?: 'prompt' | 'subsession' }
+/**
+ * A todo (a quick note) on a session, or in the Inbox when it has none yet.
+ * `sent` says where it went, if anywhere; `session` is the session a todo
+ * from the Inbox started.
+ */
+export type Note = {
+  id: string
+  text: string
+  at: number
+  sent?: 'prompt' | 'subsession' | 'session'
+  done?: boolean
+  labels?: string[]
+  /** due day, `YYYY-MM-DD` */
+  due?: string
+  session?: string
+}
 
+/** Todos by session id; the Inbox's are under INBOX. */
 export type Notes = Record<string, Note[]>
 
 export type Ui = {
@@ -60,8 +75,13 @@ export type Ui = {
   limits: Record<string, number>
   /** sections shown expanded beyond the default */
   shown: Record<string, boolean>
-  /** board = the sections; media = everything made, newest first; focus = one session and its relatives */
-  view: 'board' | 'media' | 'focus'
+  /**
+   * board = the sections; todos = every todo by due day; media = everything
+   * made, newest first; focus = one session and its relatives
+   */
+  view: 'board' | 'todos' | 'media' | 'focus'
+  /** label filter of the Todos view; '' = all */
+  label: string
   focus: string
   /** the one detail tab open on the open card ('' = none): one at a time keeps an open card short */
   tab: '' | 'media' | 'files' | 'related' | 'notes'
