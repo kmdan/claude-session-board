@@ -150,6 +150,38 @@ test('needs you = touched by you today and not closed, or asking since a day; un
   expect(stateOf(s({ appStatus: 'blocked', last: now - 2 * 24 * H }), {}, now)).toBe('waiting')
 })
 
+// the real board's size; the TIMING line in the test output is the measure to compare against
+const SIZE = 660
+test('timing at a real size: 660 sessions, first draw, a search keystroke, unfolding a section', async ($, on) => {
+  const saved = INDEX.sessions
+  const words = ['parser', 'export', 'cache', 'render', 'docs', 'audit', 'probe', 'fold', 'rig', 'mesh', 'shot', 'ui']
+  INDEX.sessions = Array.from({ length: Number(SIZE) }, (_, i) => sess(`S${i} ${words[i % 12]} ${words[(i * 7) % 12]} work`, {
+    project: `proj${i % 9}`, last: NOW - i * 3 * H, touched: i % 5 === 0 ? NOW - H : 0,
+    appStatus: i % 4 === 0 ? 'blocked' : 'completed', parent: i > 20 && i % 6 === 0 ? `S${i - 1} ${words[(i - 1) % 12]} ${words[((i - 1) * 7) % 12]} work` : null,
+    files: Array.from({ length: 15 }, (_, k) => `C:\\repo${i % 9}\\src\\file${(i * k) % 200}.py`), fileCount: 15,
+    media: Array.from({ length: 3 }, (_, k) => ({ p: `C:\\out\\m${i}_${k}.png`, k: 'image', t: NOW - k * H })),
+  })) as any
+  for (const k of Object.keys(disk)) delete disk[k]
+  try {
+    await start($, on)
+    const times: Record<string, number> = {}
+    let t0 = performance.now()
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    times.firstDraw = performance.now() - t0
+    t0 = performance.now()
+    await ui.input({ key: 'q', text: 'pa', kind: 'change' })
+    times.searchKeystroke = performance.now() - t0
+    await ui.input({ key: 'q', text: '', kind: 'change' })
+    t0 = performance.now()
+    await ui.press({ key: 'show-waiting' })
+    times.unfoldSection = performance.now() - t0
+    console.log(`TIMING ${JSON.stringify(Object.fromEntries(Object.entries(times).map(([k, v]) => [k, Math.round(v)])))}`)
+    await ui.unmount()
+  } finally {
+    INDEX.sessions = saved
+  }
+})
+
 test('a session that just asked for you pulses until you open its card', async ($, on) => {
   const saved = INDEX.sessions[0].last
   // Parser rewrite asks right now: later than any "seen" an earlier test left (opening it counts as seen)
