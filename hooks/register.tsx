@@ -271,6 +271,9 @@ async function quickTick($: $T): Promise<void> {
 // the time of the last quick check, to see who stopped working since
 let lastQuickNow = 0
 
+// fresh cards you opened: they keep their place on top until you close them
+const keptOnTop = new Set<string>()
+
 /** You saw this session's latest: its "just asked" pulse stops. */
 async function markSeen($: $T, id: string): Promise<void> {
   const stored = ((await $.store.get('seen')) as Record<string, number> | undefined) ?? {}
@@ -620,9 +623,12 @@ export const register: Register = on => {
         if (s.parent && ids.has(s.parent)) newest.set(s.parent, Math.max(newest.get(s.parent) ?? 0, s.last))
       }
       const at = (s: Sess) => Math.max(s.last, newest.get(s.id) ?? 0)
+      // opening a card marks it seen, which ends its "fresh" place: the card you
+      // just opened keeps that place while it is open, or it would vanish under the click
+      const onTop = (s: Sess) => isFresh(s) || (keptOnTop.has(s.id) && ui.open === s.id)
       return items
-        .filter(s => !(s.parent && ids.has(s.parent)) || isFresh(s))
-        .sort((a, b) => Number(isFresh(b)) - Number(isFresh(a)) || at(b) - at(a))
+        .filter(s => !(s.parent && ids.has(s.parent)) || onTop(s))
+        .sort((a, b) => Number(onTop(b)) - Number(onTop(a)) || at(b) - at(a))
     }
 
     // chips: the projects with something this week, busiest first
@@ -890,6 +896,9 @@ export const register: Register = on => {
       const tab = isOpen ? ui.tab : ''
       const toggleTab = (k: Ui['tab']) => setUi(u => ({ ...u, tab: u.tab === k ? '' : k }))
       const toggleCard = () => {
+        const isOpening = ui.open !== path
+        if (isOpening && isFresh(s)) keptOnTop.add(s.id)
+        else keptOnTop.delete(s.id)
         setUi(u => ({ ...u, open: u.open === path ? '' : path, tab: '' }))
         if (isFresh(s)) background($, markSeen($, s.id))
       }

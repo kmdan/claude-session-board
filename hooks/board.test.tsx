@@ -206,6 +206,12 @@ test('a subsession that just asked gets its own card on top, and its parent says
     expect(await ui.find({ key: 't-Parser edge cases' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /↳ 1 asking/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^Needs you \(2\)/ })).toBeDefined()
+    // opening it marks it seen; it must not vanish under the click (back into its parent)
+    await ui.press({ key: 't-Parser edge cases' })
+    expect(await ui.find({ key: 'o-Parser edge cases' })).toBeDefined()
+    // closed again, it goes back to its place under its parent
+    await ui.press({ key: 't-Parser edge cases' })
+    expect(await ui.find({ key: 't-Parser edge cases' })).toBeUndefined()
     await ui.unmount()
   } finally {
     child.last = saved.last
