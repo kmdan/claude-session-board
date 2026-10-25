@@ -287,6 +287,16 @@ let lastQuickNow = 0
 // fresh cards you opened: they keep their place on top until you close them
 const keptOnTop = new Set<string>()
 
+// set when a Client card failed on this surface: the cards go back to plain buttons
+let clientCardsOff = false
+
+/** A Client card was clicked: fold or unfold it, as its title button does. */
+async function toggleFromClient($: $T, path: string): Promise<void> {
+  await update($, uiAtom, u => ({ ...u, open: u.open === path ? '' : path, tab: '' }))
+  const id = path.replace(/^[@]|^.*>/g, '')
+  if (id) await markSeen($, id)
+}
+
 /** You saw this session's latest: its "just asked" pulse stops. */
 async function markSeen($: $T, id: string): Promise<void> {
   const stored = ((await $.store.get('seen')) as Record<string, number> | undefined) ?? {}
@@ -551,6 +561,20 @@ export const register: Register = on => {
     return { text: 'Session board opened.' }
   })
 
+  // a Client card says it was clicked
+  on('ui.message', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    const data = e.data as { kind?: string; path?: string } | undefined
+    if (data?.kind === 'toggle' && typeof data.path === 'string') await toggleFromClient($, data.path)
+    return next(e)
+  })
+
+  // a Client card failed in this app: draw plain cards from now on (the engine redraws by itself)
+  on('ui.fault', async ($, e, next) => {
+    clientCardsOff = true
+    $.ui.log(`session-board: Client card off: ${String((e as { reason?: string }).reason ?? '')}`, { to: 'debug' })
+    return next(e)
+  })
+
   on('ui.close', async ($, e, next) => {
     if (e.id === PANE) isShown = false
     return next(e)
@@ -574,6 +598,9 @@ export const register: Register = on => {
     const { Box, Text, Button, Input, Link } = table
     // the terminal has no Svg; it keeps the word "indexing…" alone
     const Svg = 'Svg' in table ? table.Svg : undefined
+    // the Client card trial runs on the desktop app only
+    // (named exactly Client: the engine finds the surface module by reading `<Client module="...">` off the source)
+    const Client = e.surface === 'desktop' && 'Client' in table ? table.Client : undefined
     isShown = true
     const ix = await readIndex($)
     const ui = await read($, uiAtom)
@@ -915,37 +942,59 @@ export const register: Register = on => {
         setUi(u => ({ ...u, open: u.open === path ? '' : path, tab: '' }))
         if (isFresh(s)) background($, markSeen($, s.id))
       }
+      const showNeeds = (isOpen || state === 'need') && s.needs !== ''
+      const dots = [
+        isWorking(s, now) && (Svg
+          ? <Svg key={`dw-${path}`} source={PULSE_WORKING} alt="working now" width={12} height={12} isInteractive />
+          : <Text key={`dw-${path}`} color={DOT.working}>●</Text>),
+        isFresh(s) && (Svg
+          ? <Svg key={`df-${path}`} source={PULSE} alt="just asked for you" width={12} height={12} isInteractive />
+          : <Text key={`df-${path}`} color={ACCENT}>●</Text>),
+      ]
+      const corner = (
+        <Box flexDirection="row" gap={1} flexShrink={0}>
+          <Text wrap="truncate-end">
+            {here && s.id === here.id && <Text color={HERE}>◉ here  </Text>}
+            <Text color={projectColor(s.project)}>● {projectLabel(s.project)}</Text>
+          </Text>
+          {/* one click to the session itself; the title only unfolds the card */}
+          {!(here && s.id === here.id) && (
+            <Button key={`go-${path}`} plain onPress={() => background($, openSession($, s.id))}>
+              {opening === s.id ? <Text color={ACCENT}>opening…</Text> : <Text dimColor>open ↗</Text>}
+            </Button>
+          )}
+        </Box>
+      )
+      // The trial: the Here card's text area is one Client region (click anywhere,
+      // hover), on the desktop surface; every other card, and any surface without
+      // Client or after a Client fault, draws the buttons below.
+      const asClient = Client !== undefined && path.startsWith('@') && !clientCardsOff
       return (
         <Box key={`c-${path}`} flexDirection="column" borderStyle="round" borderColor={borderOf(s)} paddingX={1} marginBottom={depth === 0 ? 1 : 0}>
-          <Box flexDirection="row" justifyContent="space-between" gap={1}>
-            <Box flexDirection="row" gap={1} flexShrink={1} alignItems="center">
-              {isWorking(s, now) && (Svg
-                ? <Svg source={PULSE_WORKING} alt="working now" width={12} height={12} isInteractive />
-                : <Text color={DOT.working}>●</Text>)}
-              {isFresh(s) && (Svg
-                ? <Svg source={PULSE} alt="just asked for you" width={12} height={12} isInteractive />
-                : <Text color={ACCENT}>●</Text>)}
-              <Button key={`t-${path}`} plain onPress={toggleCard}>
-                <Text bold>{s.title}</Text>
+          {asClient ? (
+            <Box flexDirection="row" gap={1}>
+              {dots.some(Boolean) && <Box flexDirection="column" paddingTop={0}>{dots}</Box>}
+              <Client key={`cc-${path}`} module="./cardclient.tsx" flexGrow={1}
+                props={{ path, title: s.title, meta: meta.join(' · '), needs: showNeeds ? s.needs : '', accent: ACCENT, isOpen }} />
+              {corner}
+            </Box>
+          ) : (
+            <Box flexDirection="column">
+              <Box flexDirection="row" justifyContent="space-between" gap={1}>
+                <Box flexDirection="row" gap={1} flexShrink={1} alignItems="center">
+                  {dots}
+                  <Button key={`t-${path}`} plain onPress={toggleCard}>
+                    <Text bold>{s.title}</Text>
+                  </Button>
+                </Box>
+                {corner}
+              </Box>
+              {/* the card's lines unfold it too, not only its title (the frame itself takes no clicks) */}
+              <Button key={`tm-${path}`} plain onPress={toggleCard}>
+                <Text dimColor>{meta.join(' · ')}</Text>
               </Button>
             </Box>
-            <Box flexDirection="row" gap={1} flexShrink={0}>
-              <Text wrap="truncate-end">
-                {here && s.id === here.id && <Text color={HERE}>◉ here  </Text>}
-                <Text color={projectColor(s.project)}>● {projectLabel(s.project)}</Text>
-              </Text>
-              {/* one click to the session itself; the title only unfolds the card */}
-              {!(here && s.id === here.id) && (
-                <Button key={`go-${path}`} plain onPress={() => background($, openSession($, s.id))}>
-                  {opening === s.id ? <Text color={ACCENT}>opening…</Text> : <Text dimColor>open ↗</Text>}
-                </Button>
-              )}
-            </Box>
-          </Box>
-          {/* the card's lines unfold it too, not only its title (the frame itself takes no clicks) */}
-          <Button key={`tm-${path}`} plain onPress={toggleCard}>
-            <Text dimColor>{meta.join(' · ')}</Text>
-          </Button>
+          )}
           {parent && (
             <Box flexDirection="row" gap={1}>
               <Button key={`up-${path}`} plain onPress={() => setUi(u => ({ ...u, view: 'focus', focus: parent.id, open: '', tab: '' }))}>
@@ -956,7 +1005,7 @@ export const register: Register = on => {
               </Button>
             </Box>
           )}
-          {(isOpen || state === 'need') && s.needs !== '' && (
+          {showNeeds && !asClient && (
             <Button key={`tn-${path}`} plain onPress={toggleCard}>
               <Text color={ACCENT}>→ {s.needs}</Text>
             </Button>

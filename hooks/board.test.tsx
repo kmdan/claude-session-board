@@ -381,7 +381,8 @@ test('a card that changes section glows, then fades back in three steps', async 
 
 test('on the Here card: no Open, and a mark shows as the active button, says so, and toggles back', async ($, on) => {
   await start($, on, {}, 'cli-Parser rewrite')
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  // the terminal: there the Here card unfolds by its title button (desktop has the Client region)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 't-@Parser rewrite' })
   expect(await ui.find({ key: 'o-@Parser rewrite' })).toBeUndefined()
   toasts.length = 0
@@ -396,7 +397,7 @@ test('on the Here card: no Open, and a mark shows as the active button, says so,
 
 test('the watched session is listed once, under Here, and the header counts what is listed', async ($, on) => {
   await start($, on, {}, 'cli-Parser rewrite')
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ key: 't-@Parser rewrite' })).toBeDefined()
   expect(await ui.find({ key: 't-Parser rewrite' })).toBeUndefined()
   // Parser rewrite is Here, so 0 need you; its child waits (its parent is not in that list)
@@ -540,10 +541,26 @@ test('subsessions show live under their parent card and open in place', async ($
 
 test('the watched session is marked and pinned under Here; elsewhere there is no Here', async ($, on) => {
   await start($, on, {}, 'cli-Parser rewrite')
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /^Here$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /◉ here/ })).toBeDefined()
   expect(await ui.find({ key: 't-@Parser rewrite' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('desktop: the Here card is one Client region, a hover says it unfolds and a click anywhere does', async ($, on) => {
+  await start($, on, {}, 'cli-Parser rewrite')
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ key: 'cc-@Parser rewrite' })).toBeDefined()
+  // its text is drawn by the Client's own module (searched with `in`)
+  expect(await ui.find({ type: 'Text', text: /^Parser rewrite$/, in: 'cc-@Parser rewrite' } as any)).toBeDefined()
+  // hover: the hint appears
+  await ui.pointer({ type: 'enter', x: 5, y: 1, in: 'cc-@Parser rewrite' } as any)
+  expect(await ui.find({ type: 'Text', text: /▸ click to unfold/, in: 'cc-@Parser rewrite' } as any)).toBeDefined()
+  // a click on the grey line (row 1), not the title: the card unfolds
+  await ui.pointer({ type: 'down', x: 5, y: 1, button: 'left', in: 'cc-@Parser rewrite' } as any)
+  await ui.pointer({ type: 'up', x: 5, y: 1, button: 'left', in: 'cc-@Parser rewrite' } as any)
+  expect(await ui.find({ key: 'd-@Parser rewrite' })).toBeDefined()
   await ui.unmount()
 })
 
