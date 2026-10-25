@@ -868,6 +868,13 @@ export const register: Register = on => {
     }
 
     // the section header already names the state; a card says it only where states mix
+    // A button takes clicks only on its text, so a card's lines are padded with
+    // non-breaking spaces (normal ones collapse on the desktop) out to the card's
+    // width: the whole line clicks, and the lines sit flush, so nearly the whole
+    // card does. 90% of the width: a proportional font must never wrap the pad.
+    const cardWidth = (depth: number) => Math.max(20, Math.floor(((e.props.bodyColumns ?? 60) - 6 - depth * 3) * 0.9))
+    const fill = (text: string, width: number) => text + ' '.repeat(Math.max(0, width - text.length))
+
     const card = (s: Sess, withState = false, depth = 0, path = s.id) => {
       const state = st(s)
       const isOpen = ui.open === path || (depth === 0 && ui.view === 'focus' && ui.focus === s.id)
@@ -941,22 +948,26 @@ export const register: Register = on => {
           )}
         </Box>
       )
-      // Every text line of a card unfolds it (the frame itself takes no clicks).
+      // Every text line of a card unfolds it, padded to the card's width (above).
       // A Client region per card did take clicks anywhere, but measured 2x slower
       // at 660 sessions and pushed "open" off the edge; it was removed.
+      const width = cardWidth(depth)
+      const isHereCard = here !== undefined && s.id === here.id
+      const cornerWidth = (isHereCard ? 8 : 7) + 2 + projectLabel(s.project).length
+      const titleWidth = width - cornerWidth - 2 * dots.filter(Boolean).length - 1
       return (
         <Box key={`c-${path}`} flexDirection="column" borderStyle="round" borderColor={borderOf(s)} paddingX={1} marginBottom={depth === 0 ? 1 : 0}>
           <Box flexDirection="row" justifyContent="space-between" gap={1}>
             <Box flexDirection="row" gap={1} flexShrink={1} alignItems="center">
               {dots}
               <Button key={`t-${path}`} plain onPress={toggleCard}>
-                <Text bold>{s.title}</Text>
+                <Text bold>{fill(s.title, titleWidth)}</Text>
               </Button>
             </Box>
             {corner}
           </Box>
           <Button key={`tm-${path}`} plain onPress={toggleCard}>
-            <Text dimColor>{meta.join(' · ')}</Text>
+            <Text dimColor>{fill(meta.join(' · '), width)}</Text>
           </Button>
           {parent && (
             <Box flexDirection="row" gap={1}>
@@ -970,7 +981,7 @@ export const register: Register = on => {
           )}
           {showNeeds && (
             <Button key={`tn-${path}`} plain onPress={toggleCard}>
-              <Text color={ACCENT}>→ {s.needs}</Text>
+              <Text color={ACCENT}>{fill(`→ ${s.needs}`, width)}</Text>
             </Button>
           )}
           {children(s, depth, path)}
