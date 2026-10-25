@@ -325,6 +325,20 @@ def meta_fields(m):
     }
 
 
+def transcript_times():
+    """When each transcript was last written, by session id (cli): a working session
+    keeps writing to it, a waiting one does not. 600 stats, ~20 ms."""
+    out = {}
+    projects = os.path.join(os.path.expanduser("~"), ".claude", "projects")
+    if os.path.isdir(projects):
+        for d in os.scandir(projects):
+            if d.is_dir():
+                for f in os.scandir(d.path):
+                    if f.name.endswith(".jsonl"):
+                        out[f.name[:-6]] = int(f.stat().st_mtime * 1000)
+    return out
+
+
 def quick(since_ms):
     """
     The app records changed since `since_ms`, their fields alone: cheap enough to
@@ -350,7 +364,10 @@ def main():
         return
     if sys.argv[1] == "--quick":
         rows = quick(float(sys.argv[2]))
-        sys.stdout.buffer.write(json.dumps({"rows": rows, "ms": int((time.time() - t0) * 1000)}, ensure_ascii=True).encode("ascii"))
+        # only the recent ones: the board needs "written in the last minutes", not all 600
+        written = {k: v for k, v in transcript_times().items() if v >= float(sys.argv[2]) - 600_000}
+        sys.stdout.buffer.write(json.dumps(
+            {"rows": rows, "written": written, "ms": int((time.time() - t0) * 1000)}, ensure_ascii=True).encode("ascii"))
         return
     cache_path = sys.argv[1]
     text_dir = os.path.join(os.path.dirname(cache_path), "text")
@@ -421,6 +438,7 @@ def main():
             "parent": sp.get("sessionId"),
             "branch": m.get("branch") or "",
             "transcript": tp or "",
+            "written": int(os.stat(tp).st_mtime * 1000) if tp else 0,
             "media": media,
             "artifacts": arts,
             "questions": questions,

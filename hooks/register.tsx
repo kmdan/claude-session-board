@@ -3,7 +3,8 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Answered, Drafts, FullText, Index, Mark, Marks, Media, Moved, Note, Notes, QPage, Sess, TextHit, Ui } from '../types'
 import {
-  ago, baseName, byRecent, chatAnswers, composeAnswers, dueBucket, dueWord, isAsking, isOpenPage, matches, overlaps, pageSig,
+  ago, baseName, byRecent, chatAnswers, composeAnswers, dueBucket, dueWord, isAsking, isOpenPage, isWorking, matches,
+  overlaps, pageSig,
   parseQuick, projectColor, projectLabel, relatedFinder,
   setMark, setProjectNames, stateOf,
 } from './board'
@@ -24,6 +25,9 @@ const PULSE = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" vi
   + '<animate attributeName="opacity" values="1;0.2;1" dur="1.2s" repeatCount="indefinite"/>'
   + '<animate attributeName="r" values="4;2.6;4" dur="1.2s" repeatCount="indefinite"/>'
   + '</circle></svg>'
+
+// a session working right now: the same pulse, green and slower
+const PULSE_WORKING = PULSE.replace('#c9a26b', '#5fae6e').replaceAll('1.2s', '2s')
 
 // The session this board is drawn in (the one being watched) gets the accent;
 // sessions related to it get a border the stronger the relation, in three steps.
@@ -185,12 +189,13 @@ async function refresh($: $T): Promise<void> {
     note = `indexer did not run: ${String(err)}`
   }
   if (sessions) {
+    // The app's own "running" list, when it answers; working is seen from the
+    // transcripts either way (isWorking), so an unreachable list costs nothing.
     const live = await runningIds($)
-    if (typeof live === 'string') note += ` | running state unknown: ${live}`
-    else {
-      note += ` | ${live.size} running`
-      sessions = sessions.map(s => (live.has(s.id) ? { ...s, running: true } : s))
-    }
+    if (typeof live !== 'string') sessions = sessions.map(s => (live.has(s.id) ? { ...s, running: true } : s))
+    const nowMs = Date.now()
+    note += ` | ${sessions.filter(s => isWorking(s, nowMs)).length} working now`
+      + (typeof live === 'string' ? ' (from transcript activity; the app list did not answer)' : '')
     const list = sessions
     const at = Date.now()
     await setIndex($, list, at, note, false)
@@ -239,17 +244,32 @@ async function quickTick($: $T): Promise<void> {
   const root = $.plugin.root
   const run = await $.process.run(['py', '-3', `${root}/scripts/sessionindex.py`, '--quick', String(since)], { timeoutMs: 30_000 })
   if (run.exitCode !== 0) return
-  const rows = (JSON.parse(run.stdout) as { rows: Partial<Sess>[] }).rows
-  if (rows.length === 0) return
+  const out = JSON.parse(run.stdout) as { rows: Partial<Sess>[]; written?: Record<string, number> }
+  const rows = out.rows
+  const written = out.written ?? {}
   const byId = new Map(ix.sessions.map(s => [s.id, s]))
   if (rows.some(r => r.id && !byId.has(r.id))) {
     await refresh($)
     return
   }
+  const now = Date.now()
   const changed = new Map(rows.map(r => [r.id!, r]))
-  const merged = ix.sessions.map(s => (changed.has(s.id) ? { ...s, ...changed.get(s.id) } : s))
-  await setIndex($, merged, ix.at, ix.note, false, false)
+  let isDifferent = rows.length > 0
+  const merged = ix.sessions.map(s => {
+    const w = written[s.cli]
+    const next = changed.has(s.id) ? { ...s, ...changed.get(s.id) } : s
+    const withWritten = w !== undefined && w > (s.written ?? 0) ? { ...next, written: w } : next
+    // a session that started or stopped working since the last check redraws the board,
+    // even when nothing else changed (stopping is only time passing)
+    if (withWritten !== s || isWorking(s, lastQuickNow) !== isWorking(withWritten, now)) isDifferent = true
+    return withWritten
+  })
+  lastQuickNow = now
+  if (isDifferent) await setIndex($, merged, ix.at, ix.note, false, false)
 }
+
+// the time of the last quick check, to see who stopped working since
+let lastQuickNow = 0
 
 /** You saw this session's latest: its "just asked" pulse stops. */
 async function markSeen($: $T, id: string): Promise<void> {
@@ -548,7 +568,7 @@ export const register: Register = on => {
     const answered = (await read($, answeredAtom)) ?? {}
     const seen = (await read($, seenAtom)) ?? {}
     // just asked for you (under half an hour) and not seen since: its card pulses, as the app's notification did
-    const isFresh = (s: Sess) => isAsking(s) && now - s.last < 30 * 60_000 && (seen[s.id] ?? 0) < s.last
+    const isFresh = (s: Sess) => !isWorking(s, now) && isAsking(s) && now - s.last < 30 * 60_000 && (seen[s.id] ?? 0) < s.last
     const drafts = (await read($, draftsAtom)) ?? {}
     const openPages = (s: Sess) => s.questions.filter(p => isOpenPage(p, answered, memo.chat.get(p.title)))
     const fullText = await read($, fullTextAtom)
@@ -836,6 +856,9 @@ export const register: Register = on => {
         <Box key={`c-${path}`} flexDirection="column" borderStyle="round" borderColor={borderOf(s)} paddingX={1} marginBottom={depth === 0 ? 1 : 0}>
           <Box flexDirection="row" justifyContent="space-between" gap={1}>
             <Box flexDirection="row" gap={1} flexShrink={1} alignItems="center">
+              {isWorking(s, now) && (Svg
+                ? <Svg source={PULSE_WORKING} alt="working now" width={12} height={12} isInteractive />
+                : <Text color={DOT.working}>●</Text>)}
               {isFresh(s) && (Svg
                 ? <Svg source={PULSE} alt="just asked for you" width={12} height={12} isInteractive />
                 : <Text color={ACCENT}>●</Text>)}

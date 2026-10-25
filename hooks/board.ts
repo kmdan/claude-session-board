@@ -37,6 +37,18 @@ export function startOfDay(now: number): number {
   return d.getTime()
 }
 
+/** How recently a transcript must have been written for its session to count as working. */
+export const ACTIVE_MS = 60_000
+
+/**
+ * Working right now: the app says it runs, or its transcript was written in
+ * the last minute (a turn in progress writes every few seconds; a session
+ * waiting for you writes nothing). The second needs no help from the app.
+ */
+export function isWorking(s: Sess, now: number): boolean {
+  return s.running || now - (s.written ?? 0) < ACTIVE_MS
+}
+
 /** The app says the session stopped to wait for the person. */
 export function isAsking(s: Sess): boolean {
   return s.appStatus === 'blocked' || s.appStatus === 'review_ready'
@@ -52,7 +64,7 @@ export function isAsking(s: Sess): boolean {
 export function stateOf(s: Sess, marks: Marks, now: number): State {
   const m = marks[s.id]?.mark
   if (m) return m === 'working' ? 'working' : m
-  if (s.running) return 'working'
+  if (isWorking(s, now)) return 'working'
   const age = now - s.last
   const today = startOfDay(now)
   if (!s.archived) {

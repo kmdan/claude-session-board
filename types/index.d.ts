@@ -41,6 +41,8 @@ export type Sess = {
   last: number
   /** when YOU last touched it (looked at it or wrote in it); 0 = never recorded */
   touched: number
+  /** when its transcript was last written: a working session keeps writing, a waiting one stops */
+  written: number
   /** the app's own post-turn verdict: completed | blocked | review_ready | null */
   appStatus: string | null
   detail: string

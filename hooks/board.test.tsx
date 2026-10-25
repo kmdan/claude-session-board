@@ -137,6 +137,14 @@ async function start($: any, on: any, store?: Record<string, unknown>, self?: st
 // full index runs only (not --search or --quick)
 const indexRuns = () => ran.filter(a => String(a[2] ?? '').endsWith('sessionindex.py') && !String(a[3] ?? '').startsWith('--')).length
 
+test('a session whose transcript was written in the last minute is working, without the app saying so', () => {
+  const now = Date.now()
+  const s = (over: Record<string, unknown>) => ({ ...sess('x', {}), touched: 0, ...over }) as any
+  expect(stateOf(s({ written: now - 10_000, appStatus: 'blocked' }), {}, now)).toBe('working')
+  // a minute and a half quiet: back to what the app said (here: asking)
+  expect(stateOf(s({ written: now - 90_000, appStatus: 'blocked', last: now - 90_000 }), {}, now)).toBe('need')
+})
+
 test('needs you = touched by you today and not closed, or asking since a day; untouched activity today is Today', () => {
   // a Wednesday afternoon
   const now = new Date(2026, 9, 21, 15).getTime()
@@ -194,10 +202,12 @@ test('a session that just asked for you pulses until you open its card', async (
   try {
     await start($, on)
     const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-    const pulse = () => ui.find({ type: 'Svg', alt: 'just asked for you' } as any)
-    expect(await pulse()).toBeDefined()
+    // the first pulse on the board: Needs you comes before Working, so it is the amber one while it pulses
+    const firstPulse = async () => ((await ui.find({ type: 'Svg' } as any)) as any)?.props?.alt
+    expect(await firstPulse()).toBe('just asked for you')
     await ui.press({ key: 't-Parser rewrite' })
-    expect(await pulse()).toBeUndefined()
+    // seen: the amber pulse stops; the green one of the working session stays
+    expect(await firstPulse()).toBe('working now')
     await ui.unmount()
   } finally {
     INDEX.sessions[0].last = saved
