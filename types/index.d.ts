@@ -71,6 +71,9 @@ export type Index = {
   isLoading: boolean
 }
 
+/** What of the index sits in shared state: everything but the sessions, plus a version that redraws. */
+export type IndexMeta = Omit<Index, 'sessions'> & { version: number }
+
 /** A state the person set by hand; it wins over the automatic one. */
 export type Mark = 'working' | 'good' | 'done' | 'parked'
 
@@ -135,7 +138,7 @@ export type Moved = Record<string, number>
 declare module 'claude-code' {
   interface PluginState {
     'session-board': {
-      index: Index; ui: Ui; marks: Marks; notes: Notes; fullText: FullText; moved: Moved
+      index: IndexMeta; ui: Ui; marks: Marks; notes: Notes; fullText: FullText; moved: Moved
       /** the session an "open" was just pressed for, while the app switches to it; '' = none */
       opening: string
       answered: Answered

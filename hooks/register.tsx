@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Answered, Drafts, FullText, Index, Mark, Marks, Media, Moved, Note, Notes, QPage, Sess, TextHit, Ui } from '../types'
+import type { Answered, Drafts, FullText, Index, IndexMeta, Mark, Marks, Media, Moved, Note, Notes, QPage, Sess, TextHit, Ui } from '../types'
 import {
   ago, baseName, byRecent, chatAnswers, composeAnswers, dueBucket, dueWord, isAsking, isOpenPage, isWorking, matches,
   overlaps, pageSig,
@@ -40,8 +40,19 @@ const DOT: Record<State, string> = {
   good: '#b8a46a', done: '#6f8fbf', parked: '#5a5a5e',
 }
 
+// The index's small facts live in shared state (a drawing subscribes to them);
+// the sessions themselves (1.2 MB at 660) stay in this module's memory. In
+// state they were copied out on every drawing: measured ~200 ms per click or
+// keystroke at 660 sessions, growing with the count.
 const indexAtom = atom({ plugin: 'session-board', key: 'index' } as const,
-  { sessions: [], at: 0, note: 'not indexed yet', isLoading: false } as Index)
+  { at: 0, note: 'not indexed yet', isLoading: false, version: 0 } as IndexMeta)
+let sessionsNow: Sess[] = []
+
+/** The index as a drawing or a tick uses it: the shared facts plus the sessions from memory. */
+async function readIndex($: $T): Promise<Index> {
+  const meta = await read($, indexAtom)
+  return { ...meta, sessions: sessionsNow }
+}
 const uiAtom = atom({ plugin: 'session-board', key: 'ui' } as const,
   { query: '', project: '', open: '', limits: {}, shown: {}, view: 'board', focus: '', tab: '', label: '' } as Ui)
 // where todos that belong to no session yet are kept
@@ -114,7 +125,9 @@ async function setIndex($: $T, sessions: Sess[], at: number, note: string, isLoa
   const place = placement(sessions, marks, Date.now())
   const moved = lastPlace.size === 0 ? [] : [...place].filter(([id, p]) => lastPlace.get(id) !== p).map(([id]) => id)
   lastPlace = place
-  await update($, indexAtom, () => ({ sessions, at, note, isLoading }))
+  sessionsNow = sessions
+  // the version bump is what redraws: the sessions themselves are not in state
+  await update($, indexAtom, m => ({ at, note, isLoading, version: (m?.version ?? 0) + 1 }))
   if (moved.length <= 12) await glow($, moved)
   if (isFull) await recordChatAnswers($, sessions)
 }
@@ -213,7 +226,7 @@ async function refresh($: $T): Promise<void> {
  * refresh then replaces it. An absent or broken snapshot is skipped.
  */
 async function loadSnapshot($: $T, isForced = false): Promise<void> {
-  const current = await read($, indexAtom)
+  const current = await readIndex($)
   if (current.sessions.length > 0 && !isForced) return
   try {
     const snap = JSON.parse(await $.fs.read(`${$.plugin.root}/cache/snapshot.json`)) as { sessions: Sess[]; at: number; note: string }
@@ -237,7 +250,7 @@ let lastQuick = 0
  */
 async function quickTick($: $T): Promise<void> {
   if (!isShown) return
-  const ix = await read($, indexAtom)
+  const ix = await readIndex($)
   if (ix.sessions.length === 0 || ix.isLoading) return
   const since = Math.max(lastQuick, ix.at) - 5_000
   lastQuick = Date.now()
@@ -319,7 +332,7 @@ async function mark($: $T, id: string, m: Mark | null, title = ''): Promise<void
   await $.store.set('marks', next)
   await update($, marksAtom, () => next)
   // the card leaves its section: it glows where it lands
-  const ix = await read($, indexAtom)
+  const ix = await readIndex($)
   lastPlace = placement(ix.sessions, next, Date.now())
   await glow($, [id])
   // said in words too: a card that stays put (the one under Here) shows no move
@@ -562,7 +575,7 @@ export const register: Register = on => {
     // the terminal has no Svg; it keeps the word "indexing…" alone
     const Svg = 'Svg' in table ? table.Svg : undefined
     isShown = true
-    const ix = await read($, indexAtom)
+    const ix = await readIndex($)
     const ui = await read($, uiAtom)
     const marks = (await read($, marksAtom)) ?? {}
     const notes = (await read($, notesAtom)) ?? {}
