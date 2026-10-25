@@ -868,12 +868,14 @@ export const register: Register = on => {
     }
 
     // the section header already names the state; a card says it only where states mix
-    // A button takes clicks only on its text, so a card's lines are padded with
-    // non-breaking spaces (normal ones collapse on the desktop) out to the card's
-    // width: the whole line clicks, and the lines sit flush, so nearly the whole
-    // card does. 90% of the width: a proportional font must never wrap the pad.
+    // A button takes clicks only on its text, so a card's lines are padded out to
+    // the card's width: the whole line clicks, and the lines sit flush, so nearly
+    // the whole card does. The pad is the Braille blank (U+2800): it draws as
+    // nothing but is not whitespace, which the desktop app trims off a button's
+    // end (non-breaking spaces included: measured, the pad never showed). 90% of
+    // the width: a proportional font must never wrap the pad onto a new line.
     const cardWidth = (depth: number) => Math.max(20, Math.floor(((e.props.bodyColumns ?? 60) - 6 - depth * 3) * 0.9))
-    const fill = (text: string, width: number) => text + ' '.repeat(Math.max(0, width - text.length))
+    const fill = (text: string, width: number) => text + '⠀'.repeat(Math.max(0, width - text.length))
 
     const card = (s: Sess, withState = false, depth = 0, path = s.id) => {
       const state = st(s)

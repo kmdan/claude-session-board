@@ -558,11 +558,11 @@ test('the watched session is marked and pinned under Here; elsewhere there is no
 test('desktop: every text line of a card unfolds it, the title, the grey line and the needs line', async ($, on) => {
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  // each line is padded with non-breaking spaces to the card's width, so the click covers the whole line
-  // (pane 60 columns: (60 - 6) * 0.9 = 48)
+  // each line is padded with the Braille blank (not whitespace, so not trimmed) to the card's
+  // width, so the click covers the whole line (pane 60 columns: (60 - 6) * 0.9 = 48)
   const info = (await ui.find({ type: 'Text', text: /^❓ 2 questions · waiting/ })) as any
   expect(info?.text.length).toBe(48)
-  expect(info?.text).toMatch(/ +$/)
+  expect(info?.text).toMatch(/⠀+$/)
   for (const line of ['t', 'tm', 'tn']) {
     await ui.press({ key: `${line}-Parser rewrite` })
     expect(await ui.find({ key: 'd-Parser rewrite' })).toBeDefined()
