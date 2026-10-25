@@ -194,6 +194,46 @@ test('timing at a real size: 660 sessions, first draw, a search keystroke, unfol
   }
 })
 
+test('a subsession that just asked gets its own card on top, and its parent says so', async ($, on) => {
+  const child = INDEX.sessions[1] as any
+  const saved = { last: child.last }
+  child.last = Date.now() // Parser edge cases (a child of Parser rewrite) asks right now
+  for (const k of Object.keys(disk)) delete disk[k]
+  try {
+    await start($, on)
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    // its own card, in Needs you, not only a row under the parent
+    expect(await ui.find({ key: 't-Parser edge cases' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /↳ 1 asking/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Needs you \(2\)/ })).toBeDefined()
+    await ui.unmount()
+  } finally {
+    child.last = saved.last
+  }
+})
+
+test('a subsession that only reported back stays under its parent, which says so', async ($, on) => {
+  const child = INDEX.sessions[1] as any
+  const saved = { last: child.last, appStatus: child.appStatus }
+  Object.assign(child, { last: Date.now(), appStatus: 'completed' }) // finished a turn, asks nothing of you
+  for (const k of Object.keys(disk)) delete disk[k]
+  try {
+    await start($, on)
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    expect(await ui.find({ type: 'Text', text: /↳ 1 reported/ })).toBeDefined()
+    // not asking you: out of Needs you (only its parent there), listed under Today with the other quiet moves
+    expect(await ui.find({ type: 'Text', text: /^Needs you \(1\)/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Today, not touched by you yet \(1\)/ })).toBeDefined()
+    expect(await ui.find({ key: 'k-Parser rewrite>Parser edge cases' })).toBeDefined()
+    // the grey line unfolds the card too, not only the title
+    await ui.press({ key: 'tm-Parser rewrite' })
+    expect(await ui.find({ key: 'o-Parser rewrite' })).toBeDefined()
+    await ui.unmount()
+  } finally {
+    Object.assign(child, saved)
+  }
+})
+
 test('a session that just asked for you pulses until you open its card', async ($, on) => {
   const saved = INDEX.sessions[0].last
   // Parser rewrite asks right now: later than any "seen" an earlier test left (opening it counts as seen)

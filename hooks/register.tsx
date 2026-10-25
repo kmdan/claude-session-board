@@ -568,7 +568,13 @@ export const register: Register = on => {
     const answered = (await read($, answeredAtom)) ?? {}
     const seen = (await read($, seenAtom)) ?? {}
     // just asked for you (under half an hour) and not seen since: its card pulses, as the app's notification did
-    const isFresh = (s: Sess) => !isWorking(s, now) && isAsking(s) && now - s.last < 30 * 60_000 && (seen[s.id] ?? 0) < s.last
+    // Just finished a turn that needs you (the app notifies on it) and not seen since: it pulses amber.
+    // A subsession only when it asks YOU (blocked / ready for review): one that merely reported
+    // back sends its report to its main session, which is where the attention goes.
+    const isFresh = (s: Sess) => !isWorking(s, now) && now - s.last < 30 * 60_000 && (seen[s.id] ?? 0) < s.last
+      && (isAsking(s) || (!s.parent && stateOf(s, marks, now) === 'need'))
+    // a subsession that finished a turn in the last half hour without asking you: it reported to its parent
+    const hasReported = (s: Sess) => !!s.parent && !isWorking(s, now) && !isAsking(s) && now - s.last < 30 * 60_000
     const drafts = (await read($, draftsAtom)) ?? {}
     const openPages = (s: Sess) => s.questions.filter(p => isOpenPage(p, answered, memo.chat.get(p.title)))
     const fullText = await read($, fullTextAtom)
@@ -602,9 +608,21 @@ export const register: Register = on => {
     for (const s of [...inProject].sort(byRecent)) if (!here || s.id !== here.id) groups[st(s)].push(s)
     // a subsession whose parent is in the same list shows nested under it: the
     // header counts what a section actually lists, as the sections do
+    // A subsession whose parent is in the same list shows nested under it, not
+    // twice: except one that just asked for you, which gets its own card on
+    // top (a notification about it must not point at a row hidden in an older
+    // parent). The rest sort by their family's newest move, so a parent whose
+    // child just moved comes up with it.
     const topLevel = (items: Sess[]) => {
       const ids = new Set(items.map(s => s.id))
-      return items.filter(s => !(s.parent && ids.has(s.parent)))
+      const newest = new Map<string, number>()
+      for (const s of items) {
+        if (s.parent && ids.has(s.parent)) newest.set(s.parent, Math.max(newest.get(s.parent) ?? 0, s.last))
+      }
+      const at = (s: Sess) => Math.max(s.last, newest.get(s.id) ?? 0)
+      return items
+        .filter(s => !(s.parent && ids.has(s.parent)) || isFresh(s))
+        .sort((a, b) => Number(isFresh(b)) - Number(isFresh(a)) || at(b) - at(a))
     }
 
     // chips: the projects with something this week, busiest first
@@ -802,12 +820,20 @@ export const register: Register = on => {
             const quiet = cs === 'done' || cs === 'parked'
             const grand = (kidsOf.get(c.id) ?? []).length
             return (
-              <Button key={`k-${cPath}`} plain onPress={() => setUi(u => ({ ...u, open: cPath, tab: '' }))}>
+              <Box key={`kr-${cPath}`} flexDirection="row" alignItems="center">
                 <Text dimColor>{isLast ? '└ ' : '├ '}</Text>
-                <Text color={DOT[cs]}>● </Text>
-                <Text dimColor={quiet}>{c.title}</Text>
-                <Text dimColor> {stateWord[cs]} · {ago(now - c.last)}{grand ? ` · +${grand}` : ''}</Text>
-              </Button>
+                {/* a subsession's activity shows on its row as on a card: green working, amber asking you
+                    (drawn beside the button: a button holds only text) */}
+                {isWorking(c, now) && Svg
+                  ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
+                  : isFresh(c) && Svg
+                    ? <Svg source={PULSE} alt="just asked for you" width={10} height={10} isInteractive />
+                    : <Text color={DOT[cs]}>●</Text>}
+                <Button key={`k-${cPath}`} plain onPress={() => setUi(u => ({ ...u, open: cPath, tab: '' }))}>
+                  <Text dimColor={quiet}> {c.title}</Text>
+                  <Text dimColor> {stateWord[cs]} · {ago(now - c.last)}{grand ? ` · +${grand}` : ''}</Text>
+                </Button>
+              </Box>
             )
           })}
           {kids.length > visible.length && (
@@ -837,6 +863,17 @@ export const register: Register = on => {
         const dueNow = openTodos.filter(n => ['overdue', 'today'].includes(dueBucket(n.due, now))).length
         meta.push(`${openTodos.length} todo${openTodos.length > 1 ? 's' : ''}${dueNow ? ` (${dueNow} due)` : ''}`)
       }
+      // what its subsessions are doing, said on the parent too
+      const kidsNow = kidsOf.get(s.id) ?? []
+      const kidsWorking = kidsNow.filter(c => isWorking(c, now)).length
+      const kidsAsking = kidsNow.filter(isFresh).length
+      const kidsReported = kidsNow.filter(hasReported).length
+      if (kidsWorking || kidsAsking || kidsReported) {
+        meta.push(`↳ ${[
+          kidsWorking ? `${kidsWorking} working` : '', kidsAsking ? `${kidsAsking} asking` : '',
+          kidsReported ? `${kidsReported} reported` : '',
+        ].filter(Boolean).join(' · ')}`)
+      }
       // a subsession's way up: a button to its parent's card, drawn under the meta line
       const parent = s.parent && depth === 0 ? byId.get(s.parent) : undefined
       const clash = isOpen ? overlaps(s, all, marks, now) : []
@@ -852,6 +889,10 @@ export const register: Register = on => {
       tabs.push({ key: 'notes', label: allNotes.length ? `Todos ${openCount}` : '+ Todo' })
       const tab = isOpen ? ui.tab : ''
       const toggleTab = (k: Ui['tab']) => setUi(u => ({ ...u, tab: u.tab === k ? '' : k }))
+      const toggleCard = () => {
+        setUi(u => ({ ...u, open: u.open === path ? '' : path, tab: '' }))
+        if (isFresh(s)) background($, markSeen($, s.id))
+      }
       return (
         <Box key={`c-${path}`} flexDirection="column" borderStyle="round" borderColor={borderOf(s)} paddingX={1} marginBottom={depth === 0 ? 1 : 0}>
           <Box flexDirection="row" justifyContent="space-between" gap={1}>
@@ -862,10 +903,7 @@ export const register: Register = on => {
               {isFresh(s) && (Svg
                 ? <Svg source={PULSE} alt="just asked for you" width={12} height={12} isInteractive />
                 : <Text color={ACCENT}>●</Text>)}
-              <Button key={`t-${path}`} plain onPress={() => {
-                setUi(u => ({ ...u, open: u.open === path ? '' : path, tab: '' }))
-                if (isFresh(s)) background($, markSeen($, s.id))
-              }}>
+              <Button key={`t-${path}`} plain onPress={toggleCard}>
                 <Text bold>{s.title}</Text>
               </Button>
             </Box>
@@ -882,7 +920,10 @@ export const register: Register = on => {
               )}
             </Box>
           </Box>
-          <Text dimColor wrap="truncate-end">{meta.join(' · ')}</Text>
+          {/* the card's lines unfold it too, not only its title (the frame itself takes no clicks) */}
+          <Button key={`tm-${path}`} plain onPress={toggleCard}>
+            <Text dimColor>{meta.join(' · ')}</Text>
+          </Button>
           {parent && (
             <Box flexDirection="row" gap={1}>
               <Button key={`up-${path}`} plain onPress={() => setUi(u => ({ ...u, view: 'focus', focus: parent.id, open: '', tab: '' }))}>
@@ -893,7 +934,11 @@ export const register: Register = on => {
               </Button>
             </Box>
           )}
-          {(isOpen || state === 'need') && s.needs !== '' && <Text color={ACCENT}>→ {s.needs}</Text>}
+          {(isOpen || state === 'need') && s.needs !== '' && (
+            <Button key={`tn-${path}`} plain onPress={toggleCard}>
+              <Text color={ACCENT}>→ {s.needs}</Text>
+            </Button>
+          )}
           {children(s, depth, path)}
           {isOpen && (
             <Box flexDirection="column" marginTop={1}>
