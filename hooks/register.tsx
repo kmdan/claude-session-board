@@ -887,7 +887,8 @@ export const register: Register = on => {
     const BLANK = Array.from({ length: 12 }, () => '⠀'.repeat(100)).join('\n')
     const under = (key: string, onPress: () => void) => (
       <Box position="absolute" top={0} left={0} right={0} bottom={0} overflow="hidden" flexDirection="row" alignItems="stretch">
-        <Button key={key} plain label="Unfold" onPress={onPress}><Text>{BLANK}</Text></Button>
+        {/* no `label`: the desktop draws a label in place of the children (measured: "Unfold" showed) */}
+        <Button key={key} plain onPress={onPress}><Text>{BLANK}</Text></Button>
       </Box>
     )
 
