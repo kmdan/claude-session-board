@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 import { dayOf, dueBucket, isOpenPage, pageSig, parseQuick, startOfDay, stateOf } from './board'
 
@@ -66,7 +66,8 @@ const toasts: string[] = []
 // files the board writes (its snapshot), shared by every "session" of a test
 const disk: Record<string, { text: string; mtimeMs: number }> = {}
 
-function engine(on: any, store: Record<string, unknown> = {}, self = 'cli-elsewhere') {
+// `ownClock` false: the test brings mock.clock (to move time by hand) instead of these stand-ins
+function engine(on: any, store: Record<string, unknown> = {}, self = 'cli-elsewhere', ownClock = true) {
   on('session.id', () => ({ value: self }))
   on('ui.log', (_: unknown, e: any) => {
     logged.push(String(e.text ?? JSON.stringify(e)))
@@ -104,7 +105,7 @@ function engine(on: any, store: Record<string, unknown> = {}, self = 'cli-elsewh
     store[e.key] = JSON.parse(JSON.stringify(e.value))
     return { value: undefined }
   })
-  on('clock.every', () => ({ value: undefined }))
+  if (ownClock) on('clock.every', () => ({ value: undefined }))
   on('process.run', (_: unknown, e: any) => {
     ran.push([...e.argv])
     const isIndexer = String(e.argv[2] ?? '').endsWith('sessionindex.py')
@@ -128,8 +129,8 @@ function engine(on: any, store: Record<string, unknown> = {}, self = 'cli-elsewh
   })
 }
 
-async function start($: any, on: any, store?: Record<string, unknown>, self?: string) {
-  engine(on, store, self)
+async function start($: any, on: any, store?: Record<string, unknown>, self?: string, ownClock = true) {
+  engine(on, store, self, ownClock)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.command.run({ command: 'board' })
 }
@@ -248,13 +249,12 @@ test('a session that just asked for you pulses until you open its card', async (
   for (const k of Object.keys(disk)) delete disk[k] // no older snapshot: this index is drawn
   try {
     await start($, on)
-    // desktop: the pulses are SVGs, and the card opens by a click in its Client region
+    // desktop: the pulses are SVGs
     const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
     // the first pulse on the board: Needs you comes before Working, so it is the amber one while it pulses
     const firstPulse = async () => ((await ui.find({ type: 'Svg' } as any)) as any)?.props?.alt
     expect(await firstPulse()).toBe('just asked for you')
-    await ui.pointer({ type: 'down', x: 2, y: 0, button: 'left', in: 'cc-Parser rewrite' } as any)
-    await ui.pointer({ type: 'up', x: 2, y: 0, button: 'left', in: 'cc-Parser rewrite' } as any)
+    await ui.press({ key: 't-Parser rewrite' })
     // seen: the amber pulse stops; the green one of the working session stays
     expect(await firstPulse()).toBe('working now')
     await ui.unmount()
@@ -356,9 +356,13 @@ test('a board opened right after another draws the shared snapshot and does not 
 })
 
 test('Enter searches what was said in conversations, and a hit opens its card', async ($, on) => {
-  await start($, on)
+  const clock = mock.clock(on, { now: Date.now() })
+  await start($, on, undefined, undefined, false)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.input({ key: 'q', text: 'timeout', kind: 'change' })
+  // the board waits for a pause in typing before it redraws
+  expect(await ui.find({ type: 'Text', text: /Press Enter to search what was said/ })).toBeUndefined()
+  await clock.advance(200)
   expect(await ui.find({ type: 'Text', text: /Press Enter to search what was said/ })).toBeDefined()
   searched.length = 0
   await ui.input({ key: 'q', text: 'timeout' })
@@ -551,22 +555,15 @@ test('the watched session is marked and pinned under Here; elsewhere there is no
   await ui.unmount()
 })
 
-test('desktop: every card is one Client region; hover underlines, a click anywhere unfolds, no line is added', async ($, on) => {
-  await start($, on, {}, 'cli-Parser rewrite')
+test('desktop: every text line of a card unfolds it, the title, the grey line and the needs line', async ($, on) => {
+  await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  // the Here card and an ordinary card alike
-  for (const key of ['cc-@Parser rewrite', 'cc-Docs audit']) expect(await ui.find({ key })).toBeDefined()
-  const title = () => ui.find({ type: 'Text', text: /^Docs audit$/, in: 'cc-Docs audit' } as any) as Promise<any>
-  const rows = async () => JSON.stringify(await ui.drawn({ in: 'cc-Docs audit' } as any)).length
-  const before = await rows()
-  // hover: the title underlines, nothing else changes size
-  await ui.pointer({ type: 'enter', x: 5, y: 1, in: 'cc-Docs audit' } as any)
-  expect((await title())?.props?.underline).toBe(true)
-  expect(Math.abs((await rows()) - before)).toBeLessThan(20)
-  // a click on the grey line (row 1), not the title: the card unfolds
-  await ui.pointer({ type: 'down', x: 5, y: 1, button: 'left', in: 'cc-Docs audit' } as any)
-  await ui.pointer({ type: 'up', x: 5, y: 1, button: 'left', in: 'cc-Docs audit' } as any)
-  expect(await ui.find({ key: 'd-Docs audit' })).toBeDefined()
+  for (const line of ['t', 'tm', 'tn']) {
+    await ui.press({ key: `${line}-Parser rewrite` })
+    expect(await ui.find({ key: 'd-Parser rewrite' })).toBeDefined()
+    await ui.press({ key: `${line}-Parser rewrite` })
+    expect(await ui.find({ key: 'd-Parser rewrite' })).toBeUndefined()
+  }
   await ui.unmount()
 })
 

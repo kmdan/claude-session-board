@@ -287,22 +287,8 @@ let lastQuickNow = 0
 // fresh cards you opened: they keep their place on top until you close them
 const keptOnTop = new Set<string>()
 
-// set when a Client card failed on this surface: the cards go back to plain buttons
-let clientCardsOff = false
-
-/**
- * A Client card was clicked: fold or unfold it, as its title button does. A
- * card that just asked for you keeps its place while open (opening marks it
- * seen, which would otherwise move it away under the click).
- */
-async function toggleFromClient($: $T, path: string, id: string, isFresh: boolean): Promise<void> {
-  const ui = await read($, uiAtom)
-  const isOpening = ui.open !== path
-  if (isOpening && isFresh) keptOnTop.add(id)
-  else keptOnTop.delete(id)
-  await update($, uiAtom, u => ({ ...u, open: u.open === path ? '' : path, tab: '' }))
-  if (isFresh) await markSeen($, id)
-}
+// the search field's latest text, while the board waits for a pause in typing
+let typedQuery = ''
 
 /** You saw this session's latest: its "just asked" pulse stops. */
 async function markSeen($: $T, id: string): Promise<void> {
@@ -568,22 +554,6 @@ export const register: Register = on => {
     return { text: 'Session board opened.' }
   })
 
-  // a Client card says it was clicked
-  on('ui.message', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
-    const data = e.data as { kind?: string; path?: string; id?: string; isFresh?: boolean } | undefined
-    if (data?.kind === 'toggle' && typeof data.path === 'string') {
-      await toggleFromClient($, data.path, data.id ?? data.path, data.isFresh === true)
-    }
-    return next(e)
-  })
-
-  // a Client card failed in this app: draw plain cards from now on (the engine redraws by itself)
-  on('ui.fault', async ($, e, next) => {
-    clientCardsOff = true
-    $.ui.log(`session-board: Client card off: ${String((e as { reason?: string }).reason ?? '')}`, { to: 'debug' })
-    return next(e)
-  })
-
   on('ui.close', async ($, e, next) => {
     if (e.id === PANE) isShown = false
     return next(e)
@@ -607,9 +577,6 @@ export const register: Register = on => {
     const { Box, Text, Button, Input, Link } = table
     // the terminal has no Svg; it keeps the word "indexing…" alone
     const Svg = 'Svg' in table ? table.Svg : undefined
-    // the Client card trial runs on the desktop app only
-    // (named exactly Client: the engine finds the surface module by reading `<Client module="...">` off the source)
-    const Client = e.surface === 'desktop' && 'Client' in table ? table.Client : undefined
     isShown = true
     const ix = await readIndex($)
     const ui = await read($, uiAtom)
@@ -974,36 +941,23 @@ export const register: Register = on => {
           )}
         </Box>
       )
-      // A card's text area is one Client region on the desktop surface (click
-      // anywhere, hover); a surface without Client, or one where a Client failed,
-      // draws the buttons below.
-      const asClient = Client !== undefined && !clientCardsOff
+      // Every text line of a card unfolds it (the frame itself takes no clicks).
+      // A Client region per card did take clicks anywhere, but measured 2x slower
+      // at 660 sessions and pushed "open" off the edge; it was removed.
       return (
         <Box key={`c-${path}`} flexDirection="column" borderStyle="round" borderColor={borderOf(s)} paddingX={1} marginBottom={depth === 0 ? 1 : 0}>
-          {asClient ? (
-            <Box flexDirection="row" gap={1}>
-              {dots.some(Boolean) && <Box flexDirection="column" paddingTop={0}>{dots}</Box>}
-              <Client key={`cc-${path}`} module="./cardclient.tsx" flexGrow={1}
-                props={{ path, id: s.id, title: s.title, meta: meta.join(' · '), needs: showNeeds ? s.needs : '', accent: ACCENT, isOpen, isFresh: isFresh(s) }} />
-              {corner}
-            </Box>
-          ) : (
-            <Box flexDirection="column">
-              <Box flexDirection="row" justifyContent="space-between" gap={1}>
-                <Box flexDirection="row" gap={1} flexShrink={1} alignItems="center">
-                  {dots}
-                  <Button key={`t-${path}`} plain onPress={toggleCard}>
-                    <Text bold>{s.title}</Text>
-                  </Button>
-                </Box>
-                {corner}
-              </Box>
-              {/* the card's lines unfold it too, not only its title (the frame itself takes no clicks) */}
-              <Button key={`tm-${path}`} plain onPress={toggleCard}>
-                <Text dimColor>{meta.join(' · ')}</Text>
+          <Box flexDirection="row" justifyContent="space-between" gap={1}>
+            <Box flexDirection="row" gap={1} flexShrink={1} alignItems="center">
+              {dots}
+              <Button key={`t-${path}`} plain onPress={toggleCard}>
+                <Text bold>{s.title}</Text>
               </Button>
             </Box>
-          )}
+            {corner}
+          </Box>
+          <Button key={`tm-${path}`} plain onPress={toggleCard}>
+            <Text dimColor>{meta.join(' · ')}</Text>
+          </Button>
           {parent && (
             <Box flexDirection="row" gap={1}>
               <Button key={`up-${path}`} plain onPress={() => setUi(u => ({ ...u, view: 'focus', focus: parent.id, open: '', tab: '' }))}>
@@ -1014,7 +968,7 @@ export const register: Register = on => {
               </Button>
             </Box>
           )}
-          {showNeeds && !asClient && (
+          {showNeeds && (
             <Button key={`tn-${path}`} plain onPress={toggleCard}>
               <Text color={ACCENT}>→ {s.needs}</Text>
             </Button>
@@ -1285,9 +1239,16 @@ export const register: Register = on => {
         <Input
           key="q"
           placeholder="Search titles, files, media, commits… Enter: also what was said"
-          value={ui.query}
-          onInput={v => setUi(u => ({ ...u, query: v }))}
+          // not bound to ui.query: the field keeps what is typed itself, and the
+          // board redraws once typing pauses (150 ms), not on every letter
+          onInput={v => {
+            typedQuery = v
+            $.clock.after(150, () => {
+              if (typedQuery === v) setUi(u => (u.query === v ? u : { ...u, query: v }))
+            })
+          }}
           onSubmit={v => {
+            typedQuery = v
             setUi(u => ({ ...u, query: v, view: 'board' }))
             background($, searchText($, v))
           }}
