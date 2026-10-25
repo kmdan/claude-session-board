@@ -206,14 +206,18 @@ test('a subsession that just asked gets its own card on top, and its parent says
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
     // its own card, in Needs you, not only a row under the parent
     expect(await ui.find({ key: 't-Parser edge cases' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /↳ 1 asking/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /1 sub asks you/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^NEEDS YOU · 2/ })).toBeDefined()
+    // its main session sits above its title, one click up
+    expect(await ui.find({ type: 'Text', text: /^Parser rewrite ›$/ })).toBeDefined()
+    // on its parent's rail it points up to its card
+    expect(await ui.find({ type: 'Text', text: /asks you ↑/ })).toBeDefined()
     // opening it marks it seen; it must not vanish under the click (back into its parent)
     await ui.press({ key: 't-Parser edge cases' })
     expect(await ui.find({ key: 'o-Parser edge cases' })).toBeDefined()
-    // closed again, it goes back to its place under its parent
+    // seen and closed, it still waits on you: it keeps its own card
     await ui.press({ key: 't-Parser edge cases' })
-    expect(await ui.find({ key: 't-Parser edge cases' })).toBeUndefined()
+    expect(await ui.find({ key: 't-Parser edge cases' })).toBeDefined()
     await ui.unmount()
   } finally {
     child.last = saved.last
@@ -228,10 +232,12 @@ test('a subsession that only reported back stays under its parent, which says so
   try {
     await start($, on)
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-    expect(await ui.find({ type: 'Text', text: /↳ 1 reported/ })).toBeDefined()
-    // not asking you: out of Needs you (only its parent there), listed under Today with the other quiet moves
+    expect(await ui.find({ type: 'Text', text: /↩ 1 report in/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /reported · / })).toBeDefined()
+    // not asking you: out of Needs you (only its parent there), and not listed on its own
+    // anywhere: it is a row on its main session's rail
     expect(await ui.find({ type: 'Text', text: /^NEEDS YOU · 1/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^TODAY, NOT TOUCHED BY YOU YET · 1/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^TODAY, NOT TOUCHED BY YOU YET/ })).toBeUndefined()
     expect(await ui.find({ key: 'k-Parser rewrite>Parser edge cases' })).toBeDefined()
     // the grey line unfolds the card too, not only the title
     await ui.press({ key: 'tm-Parser rewrite' })
@@ -541,7 +547,8 @@ test('subsessions show live under their parent card and open in place', async ($
 
   // Parser edge cases is Parser rewrite's child: a row under the parent, closed card or not
   expect(await ui.find({ key: 'k-Parser rewrite>Parser edge cases' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /still waiting · 3 d/ })).toBeDefined()
+  // it waits on you (blocked): its rail row says so and points up to its own card
+  expect(await ui.find({ type: 'Text', text: /asks you ↑ · 3 d/ })).toBeDefined()
   await ui.press({ key: 'k-Parser rewrite>Parser edge cases' })
   // it opens as its own card, nested: its buttons carry the nested path
   expect(await ui.find({ key: 'o-Parser rewrite>Parser edge cases' })).toBeDefined()
@@ -560,15 +567,13 @@ test('the watched session is marked and pinned under Here; elsewhere there is no
   await ui.unmount()
 })
 
-test('desktop: every text line of a card unfolds it, the title, the grey line and the needs line', async ($, on) => {
+test('desktop: a card unfolds from anywhere on it: the blank layer under it, the title, the grey line, the needs line', async ($, on) => {
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  // each line is padded with the Braille blank (not whitespace, so not trimmed) to the card's
-  // width, so the click covers the whole line (pane 60 columns: (60 - 6) * 0.9 = 48)
+  // the lines are no longer padded (it wrapped them in a proportional font)
   const info = (await ui.find({ type: 'Text', text: /^❓ 2 questions · waiting/ })) as any
-  expect(info?.text.length).toBe(48)
-  expect(info?.text).toMatch(/⠀+$/)
-  for (const line of ['t', 'tm', 'tn']) {
+  expect(info?.text).not.toMatch(/⠀/)
+  for (const line of ['tb', 't', 'tm', 'tn']) {
     await ui.press({ key: `${line}-Parser rewrite` })
     expect(await ui.find({ key: 'd-Parser rewrite' })).toBeDefined()
     await ui.press({ key: `${line}-Parser rewrite` })

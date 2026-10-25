@@ -594,6 +594,10 @@ export const register: Register = on => {
       && (isAsking(s) || (!s.parent && stateOf(s, marks, now) === 'need'))
     // a subsession that finished a turn in the last half hour without asking you: it reported to its parent
     const hasReported = (s: Sess) => !!s.parent && !isWorking(s, now) && !isAsking(s) && now - s.last < 30 * 60_000
+    // a subsession waiting on YOU (blocked / ready for review), not handed to its main session:
+    // its own card in Needs you for as long as it waits, not only while fresh
+    const asksYou = (s: Sess) => !!s.parent && isAsking(s) && !isWorking(s, now)
+      && ['need', 'waiting'].includes(stateOf(s, marks, now))
     const drafts = (await read($, draftsAtom)) ?? {}
     const openPages = (s: Sess) => s.questions.filter(p => isOpenPage(p, answered, memo.chat.get(p.title)))
     const fullText = await read($, fullTextAtom)
@@ -632,18 +636,18 @@ export const register: Register = on => {
     // top (a notification about it must not point at a row hidden in an older
     // parent). The rest sort by their family's newest move, so a parent whose
     // child just moved comes up with it.
+    // On the board (no search) a subsession that only reports is never listed on
+    // its own: it is a row on its main session's rail, wherever that is listed.
     const topLevel = (items: Sess[]) => {
       const ids = new Set(items.map(s => s.id))
-      const newest = new Map<string, number>()
-      for (const s of items) {
-        if (s.parent && ids.has(s.parent)) newest.set(s.parent, Math.max(newest.get(s.parent) ?? 0, s.last))
-      }
-      const at = (s: Sess) => Math.max(s.last, newest.get(s.id) ?? 0)
+      // kidsOf is newest first: the family's newest move is its first child's
+      const at = (s: Sess) => Math.max(s.last, kidsOf.get(s.id)?.[0]?.last ?? 0)
       // opening a card marks it seen, which ends its "fresh" place: the card you
       // just opened keeps that place while it is open, or it would vanish under the click
-      const onTop = (s: Sess) => isFresh(s) || (keptOnTop.has(s.id) && ui.open === s.id)
+      const onTop = (s: Sess) => isFresh(s) || asksYou(s) || (keptOnTop.has(s.id) && ui.open === s.id)
+      const nested = (s: Sess) => !!s.parent && (ids.has(s.parent) || (!ui.query && byId.has(s.parent)))
       return items
-        .filter(s => !(s.parent && ids.has(s.parent)) || onTop(s))
+        .filter(s => !nested(s) || onTop(s))
         .sort((a, b) => Number(onTop(b)) - Number(onTop(a)) || at(b) - at(a))
     }
 
@@ -839,21 +843,28 @@ export const register: Register = on => {
               )
             }
             const cs = st(c)
-            const quiet = cs === 'done' || cs === 'parked'
             const grand = (kidsOf.get(c.id) ?? []).length
+            // the rail says how each subsession relates to you: working, asks you
+            // (its own card is up in Needs you), reported to this session, or quiet
+            const working = isWorking(c, now)
+            const asks = !working && asksYou(c)
+            const reported = !working && !asks && hasReported(c)
+            const quiet = reported || cs === 'done' || cs === 'parked'
+            const word = working ? 'working' : asks ? 'asks you ↑' : reported ? 'reported' : stateWord[cs]
             return (
               <Box key={`kr-${cPath}`} flexDirection="row" alignItems="center">
                 <Text dimColor>{isLast ? '└ ' : '├ '}</Text>
-                {/* a subsession's activity shows on its row as on a card: green working, amber asking you
-                    (drawn beside the button: a button holds only text) */}
-                {isWorking(c, now) && Svg
+                {/* drawn beside the button: a button holds only text */}
+                {working && Svg
                   ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
                   : isFresh(c) && Svg
                     ? <Svg source={PULSE} alt="just asked for you" width={10} height={10} isInteractive />
-                    : <Text color={DOT[cs]}>●</Text>}
+                    : reported
+                      ? <Text dimColor>↩</Text>
+                      : <Text color={asks ? ACCENT : DOT[cs]}>●</Text>}
                 <Button key={`k-${cPath}`} plain onPress={() => setUi(u => ({ ...u, open: cPath, tab: '' }))}>
                   <Text dimColor={quiet}> {c.title}</Text>
-                  <Text dimColor> {stateWord[cs]} · {ago(now - c.last)}{grand ? ` · +${grand}` : ''}</Text>
+                  <Text dimColor={!asks} color={asks ? ACCENT : undefined}> {word} · {ago(now - c.last)}{grand ? ` · +${grand}` : ''}</Text>
                 </Button>
               </Box>
             )
@@ -867,15 +878,18 @@ export const register: Register = on => {
       )
     }
 
-    // the section header already names the state; a card says it only where states mix
-    // A button takes clicks only on its text, so a card's lines are padded out to
-    // the card's width: the whole line clicks, and the lines sit flush, so nearly
-    // the whole card does. The pad is the Braille blank (U+2800): it draws as
-    // nothing but is not whitespace, which the desktop app trims off a button's
-    // end (non-breaking spaces included: measured, the pad never showed). 90% of
-    // the width: a proportional font must never wrap the pad onto a new line.
-    const cardWidth = (depth: number) => Math.max(20, Math.floor(((e.props.bodyColumns ?? 60) - 6 - depth * 3) * 0.9))
-    const fill = (text: string, width: number) => text + '⠀'.repeat(Math.max(0, width - text.length))
+    // A button takes clicks only on its own text, and padding the lines out wrapped
+    // them in the desktop's proportional font. So each card and row lays one blank
+    // button under everything, stretched over the whole box (absolute, first
+    // child: what is drawn after it paints over it and keeps its own clicks).
+    // Its label is the Braille blank (U+2800), many lines of it, clipped: drawn as
+    // nothing and never trimmed as whitespace is.
+    const BLANK = Array.from({ length: 12 }, () => '⠀'.repeat(100)).join('\n')
+    const under = (key: string, onPress: () => void) => (
+      <Box position="absolute" top={0} left={0} right={0} bottom={0} overflow="hidden" flexDirection="row" alignItems="stretch">
+        <Button key={key} plain label="Unfold" onPress={onPress}><Text>{BLANK}</Text></Button>
+      </Box>
+    )
 
     const card = (s: Sess, withState = false, depth = 0, path = s.id) => {
       const state = st(s)
@@ -895,14 +909,12 @@ export const register: Register = on => {
       // what its subsessions are doing, said on the parent too
       const kidsNow = kidsOf.get(s.id) ?? []
       const kidsWorking = kidsNow.filter(c => isWorking(c, now)).length
-      const kidsAsking = kidsNow.filter(isFresh).length
+      const kidsAsking = kidsNow.filter(asksYou).length
       const kidsReported = kidsNow.filter(hasReported).length
-      if (kidsWorking || kidsAsking || kidsReported) {
-        meta.push(`↳ ${[
-          kidsWorking ? `${kidsWorking} working` : '', kidsAsking ? `${kidsAsking} asking` : '',
-          kidsReported ? `${kidsReported} reported` : '',
-        ].filter(Boolean).join(' · ')}`)
-      }
+      // reports land here: read them in this session, not in the subsessions
+      if (kidsReported) meta.push(`↩ ${kidsReported} report${kidsReported > 1 ? 's' : ''} in`)
+      if (kidsWorking) meta.push(`${kidsWorking} sub working`)
+      if (kidsAsking) meta.push(`${kidsAsking} sub asks you`)
       // a subsession's way up: a button to its parent's card, drawn under the meta line
       const parent = s.parent && depth === 0 ? byId.get(s.parent) : undefined
       const clash = isOpen ? overlaps(s, all, marks, now) : []
@@ -948,40 +960,38 @@ export const register: Register = on => {
           )}
         </Box>
       )
-      // Every text line of a card unfolds it, padded to the card's width (above).
-      // A Client region per card did take clicks anywhere, but measured 2x slower
-      // at 660 sessions and pushed "open" off the edge; it was removed.
-      const width = cardWidth(depth)
-      const isHereCard = here !== undefined && s.id === here.id
-      const cornerWidth = (isHereCard ? 8 : 7) + 2 + projectLabel(s.project).length
-      const titleWidth = width - cornerWidth - 2 * dots.filter(Boolean).length - 1
+      // The blank button under the card (above) takes a click anywhere on it.
+      // A Client region per card did too, but measured 2x slower at 660
+      // sessions and pushed "open" off the edge; it was removed.
       return (
         <Box key={`c-${path}`} flexDirection="column" borderStyle="round" borderColor={borderOf(s)} paddingX={1} marginBottom={depth === 0 ? 1 : 0}>
-          <Box flexDirection="row" justifyContent="space-between" gap={1}>
-            <Box flexDirection="row" gap={1} flexShrink={1} alignItems="center">
-              {dots}
-              <Button key={`t-${path}`} plain onPress={toggleCard}>
-                <Text bold>{fill(s.title, titleWidth)}</Text>
-              </Button>
-            </Box>
-            {corner}
-          </Box>
-          <Button key={`tm-${path}`} plain onPress={toggleCard}>
-            <Text dimColor>{fill(meta.join(' · '), width)}</Text>
-          </Button>
+          {under(`tb-${path}`, toggleCard)}
+          {/* a subsession's main session, above its title: "Parent ›", one click up */}
           {parent && (
             <Box flexDirection="row" gap={1}>
               <Button key={`up-${path}`} plain onPress={() => setUi(u => ({ ...u, view: 'focus', focus: parent.id, open: '', tab: '' }))}>
-                <Text dimColor>↰ part of </Text><Text>{parent.title}</Text>
+                <Text dimColor>{parent.title} ›</Text>
               </Button>
               <Button key={`upo-${path}`} plain onPress={() => background($, openSession($, parent.id))}>
                 {opening === parent.id ? <Text color={ACCENT}>opening…</Text> : <Text dimColor>open ↗</Text>}
               </Button>
             </Box>
           )}
+          <Box flexDirection="row" justifyContent="space-between" gap={1}>
+            <Box flexDirection="row" gap={1} flexShrink={1} alignItems="center">
+              {dots}
+              <Button key={`t-${path}`} plain onPress={toggleCard}>
+                <Text bold>{s.title}</Text>
+              </Button>
+            </Box>
+            {corner}
+          </Box>
+          <Button key={`tm-${path}`} plain onPress={toggleCard}>
+            <Text dimColor>{meta.join(' · ')}</Text>
+          </Button>
           {showNeeds && (
             <Button key={`tn-${path}`} plain onPress={toggleCard}>
-              <Text color={ACCENT}>{fill(`→ ${s.needs}`, width)}</Text>
+              <Text color={ACCENT}>→ {s.needs}</Text>
             </Button>
           )}
           {children(s, depth, path)}
@@ -1056,18 +1066,23 @@ export const register: Register = on => {
     const row = (s: Sess) => {
       if (ui.open === s.id) return card(s, true)
       const cs = st(s)
-      const width = cardWidth(0) - projectLabel(s.project).length - 14
-      const kids = (kidsOf.get(s.id) ?? []).length
+      const kidList = kidsOf.get(s.id) ?? []
+      const kids = kidList.length
+      const reports = kidList.filter(hasReported).length
+      const unfold = () => setUi(u => ({ ...u, open: s.id, tab: '' }))
+      // the family's activity: a working subsession makes its main row pulse too
       return (
         <Box key={`row-${s.id}`} flexDirection="row" gap={1} alignItems="center" paddingX={1}>
-          {isWorking(s, now) && Svg
+          {under(`tb-${s.id}`, unfold)}
+          {(isWorking(s, now) || kidList.some(c => isWorking(c, now))) && Svg
             ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
             : isFresh(s) && Svg
               ? <Svg source={PULSE} alt="just asked for you" width={10} height={10} isInteractive />
               : <Text color={DOT[cs]}>●</Text>}
           <Box flexGrow={1} flexShrink={1}>
-            <Button key={`t-${s.id}`} plain onPress={() => setUi(u => ({ ...u, open: s.id, tab: '' }))}>
-              <Text>{fill(kids ? `${s.title}  +${kids}` : s.title, width)}</Text>
+            <Button key={`t-${s.id}`} plain onPress={unfold}>
+              <Text>{s.title}</Text>
+              {kids > 0 && <Text dimColor>  +{kids}{reports ? ` ↩${reports}` : ''}</Text>}
             </Button>
           </Box>
           <Text color={projectColor(s.project)}>{projectLabel(s.project)}</Text>
