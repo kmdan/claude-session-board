@@ -290,11 +290,18 @@ const keptOnTop = new Set<string>()
 // set when a Client card failed on this surface: the cards go back to plain buttons
 let clientCardsOff = false
 
-/** A Client card was clicked: fold or unfold it, as its title button does. */
-async function toggleFromClient($: $T, path: string): Promise<void> {
+/**
+ * A Client card was clicked: fold or unfold it, as its title button does. A
+ * card that just asked for you keeps its place while open (opening marks it
+ * seen, which would otherwise move it away under the click).
+ */
+async function toggleFromClient($: $T, path: string, id: string, isFresh: boolean): Promise<void> {
+  const ui = await read($, uiAtom)
+  const isOpening = ui.open !== path
+  if (isOpening && isFresh) keptOnTop.add(id)
+  else keptOnTop.delete(id)
   await update($, uiAtom, u => ({ ...u, open: u.open === path ? '' : path, tab: '' }))
-  const id = path.replace(/^[@]|^.*>/g, '')
-  if (id) await markSeen($, id)
+  if (isFresh) await markSeen($, id)
 }
 
 /** You saw this session's latest: its "just asked" pulse stops. */
@@ -563,8 +570,10 @@ export const register: Register = on => {
 
   // a Client card says it was clicked
   on('ui.message', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
-    const data = e.data as { kind?: string; path?: string } | undefined
-    if (data?.kind === 'toggle' && typeof data.path === 'string') await toggleFromClient($, data.path)
+    const data = e.data as { kind?: string; path?: string; id?: string; isFresh?: boolean } | undefined
+    if (data?.kind === 'toggle' && typeof data.path === 'string') {
+      await toggleFromClient($, data.path, data.id ?? data.path, data.isFresh === true)
+    }
     return next(e)
   })
 
@@ -965,17 +974,17 @@ export const register: Register = on => {
           )}
         </Box>
       )
-      // The trial: the Here card's text area is one Client region (click anywhere,
-      // hover), on the desktop surface; every other card, and any surface without
-      // Client or after a Client fault, draws the buttons below.
-      const asClient = Client !== undefined && path.startsWith('@') && !clientCardsOff
+      // A card's text area is one Client region on the desktop surface (click
+      // anywhere, hover); a surface without Client, or one where a Client failed,
+      // draws the buttons below.
+      const asClient = Client !== undefined && !clientCardsOff
       return (
         <Box key={`c-${path}`} flexDirection="column" borderStyle="round" borderColor={borderOf(s)} paddingX={1} marginBottom={depth === 0 ? 1 : 0}>
           {asClient ? (
             <Box flexDirection="row" gap={1}>
               {dots.some(Boolean) && <Box flexDirection="column" paddingTop={0}>{dots}</Box>}
               <Client key={`cc-${path}`} module="./cardclient.tsx" flexGrow={1}
-                props={{ path, title: s.title, meta: meta.join(' · '), needs: showNeeds ? s.needs : '', accent: ACCENT, isOpen }} />
+                props={{ path, id: s.id, title: s.title, meta: meta.join(' · '), needs: showNeeds ? s.needs : '', accent: ACCENT, isOpen, isFresh: isFresh(s) }} />
               {corner}
             </Box>
           ) : (

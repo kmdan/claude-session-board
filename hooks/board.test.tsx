@@ -178,6 +178,7 @@ test('timing at a real size: 660 sessions, first draw, a search keystroke, unfol
     await start($, on)
     const times: Record<string, number> = {}
     let t0 = performance.now()
+    // desktop, as the app draws it (Client cards included)
     const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
     times.firstDraw = performance.now() - t0
     t0 = performance.now()
@@ -201,7 +202,7 @@ test('a subsession that just asked gets its own card on top, and its parent says
   for (const k of Object.keys(disk)) delete disk[k]
   try {
     await start($, on)
-    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
     // its own card, in Needs you, not only a row under the parent
     expect(await ui.find({ key: 't-Parser edge cases' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /↳ 1 asking/ })).toBeDefined()
@@ -225,7 +226,7 @@ test('a subsession that only reported back stays under its parent, which says so
   for (const k of Object.keys(disk)) delete disk[k]
   try {
     await start($, on)
-    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
     expect(await ui.find({ type: 'Text', text: /↳ 1 reported/ })).toBeDefined()
     // not asking you: out of Needs you (only its parent there), listed under Today with the other quiet moves
     expect(await ui.find({ type: 'Text', text: /^Needs you \(1\)/ })).toBeDefined()
@@ -247,11 +248,13 @@ test('a session that just asked for you pulses until you open its card', async (
   for (const k of Object.keys(disk)) delete disk[k] // no older snapshot: this index is drawn
   try {
     await start($, on)
+    // desktop: the pulses are SVGs, and the card opens by a click in its Client region
     const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
     // the first pulse on the board: Needs you comes before Working, so it is the amber one while it pulses
     const firstPulse = async () => ((await ui.find({ type: 'Svg' } as any)) as any)?.props?.alt
     expect(await firstPulse()).toBe('just asked for you')
-    await ui.press({ key: 't-Parser rewrite' })
+    await ui.pointer({ type: 'down', x: 2, y: 0, button: 'left', in: 'cc-Parser rewrite' } as any)
+    await ui.pointer({ type: 'up', x: 2, y: 0, button: 'left', in: 'cc-Parser rewrite' } as any)
     // seen: the amber pulse stops; the green one of the working session stays
     expect(await firstPulse()).toBe('working now')
     await ui.unmount()
@@ -295,7 +298,7 @@ test('quick add reads labels and one date word out of the text', () => {
 test('the Todos view: Inbox quick add, Today, label filter, tick, and a session from a todo', async ($, on) => {
   const store: Record<string, unknown> = {}
   await start($, on, store)
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'v-todos' })
   await ui.input({ key: 'todo-add', text: 'check the cache size @ops today' })
   await ui.input({ key: 'todo-add', text: 'write the release notes @docs' })
@@ -335,7 +338,7 @@ test('a session start opens the board; the first indexes, a second reads its sna
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   expect([opened, ...logged]).toEqual([1])
   // the indexing runs behind the open; a drawn pane has waited it out
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(indexRuns()).toBe(before + 1)
   expect(Object.keys(disk).some(p => p.endsWith('snapshot.json'))).toBe(true)
   await ui.unmount()
@@ -347,14 +350,14 @@ test('a board opened right after another draws the shared snapshot and does not 
   const before = indexRuns()
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   expect(indexRuns()).toBe(before)
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /shared refresh/ })).toBeDefined()
   await ui.unmount()
 })
 
 test('Enter searches what was said in conversations, and a hit opens its card', async ($, on) => {
   await start($, on)
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.input({ key: 'q', text: 'timeout', kind: 'change' })
   expect(await ui.find({ type: 'Text', text: /Press Enter to search what was said/ })).toBeDefined()
   searched.length = 0
@@ -369,7 +372,7 @@ test('Enter searches what was said in conversations, and a hit opens its card', 
 
 test('a card that changes section glows, then fades back in three steps', async ($, on) => {
   await start($, on)
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 't-Parser rewrite' })
   const before = await ui.find({ key: 'c-Parser rewrite' })
   await ui.press({ key: 'g-Parser rewrite' })
@@ -441,7 +444,7 @@ test('a mark keeps the marks another session wrote since this one loaded', async
   const store: Record<string, unknown> = {}
   await start($, on, store)
   store.marks = { 'Old probe': { mark: 'done', at: 1 } } // written by another session meanwhile
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 't-Parser rewrite' })
   await ui.press({ key: 'g-Parser rewrite' })
   expect(Object.keys(store.marks as object).sort()).toEqual(['Old probe', 'Parser rewrite'])
@@ -466,7 +469,7 @@ test('the board sorts sessions into needs-you, working and parked, on every surf
 
 test('marking a session good enough moves it, and the files overlap shows', async ($, on) => {
   await start($, on)
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   await ui.press({ key: 't-Parser rewrite' })
   // details stay folded until one tab is opened
@@ -483,7 +486,7 @@ test('marking a session good enough moves it, and the files overlap shows', asyn
 
 test('search finds an archived session by a file it wrote and by its commit', async ($, on) => {
   await start($, on)
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   await ui.input({ key: 'q', text: 'csvexporter' })
   expect(await ui.find({ type: 'Text', text: /Found for "csvexporter" \(1\)/ })).toBeDefined()
@@ -494,7 +497,7 @@ test('search finds an archived session by a file it wrote and by its commit', as
 
 test('the media view lists movies and pages newest first, and a click opens the file', async ($, on) => {
   await start($, on)
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   await ui.press({ key: 'v-media' })
   expect(await ui.find({ type: 'Text', text: /newest first \(2\)/ })).toBeDefined()
@@ -506,7 +509,7 @@ test('the media view lists movies and pages newest first, and a click opens the 
 test('a quick note is kept, and goes to its session as a prompt or as a subsession request', async ($, on) => {
   const store: Record<string, unknown> = {}
   await start($, on, store)
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   await ui.press({ key: 't-Parser rewrite' })
   await ui.press({ key: 'tab-Parser rewrite-notes' })
@@ -525,7 +528,7 @@ test('a quick note is kept, and goes to its session as a prompt or as a subsessi
 
 test('subsessions show live under their parent card and open in place', async ($, on) => {
   await start($, on)
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   // Parser edge cases is Parser rewrite's child: a row under the parent, closed card or not
   expect(await ui.find({ key: 'k-Parser rewrite>Parser edge cases' })).toBeDefined()
@@ -548,25 +551,28 @@ test('the watched session is marked and pinned under Here; elsewhere there is no
   await ui.unmount()
 })
 
-test('desktop: the Here card is one Client region, a hover says it unfolds and a click anywhere does', async ($, on) => {
+test('desktop: every card is one Client region; hover underlines, a click anywhere unfolds, no line is added', async ($, on) => {
   await start($, on, {}, 'cli-Parser rewrite')
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ key: 'cc-@Parser rewrite' })).toBeDefined()
-  // its text is drawn by the Client's own module (searched with `in`)
-  expect(await ui.find({ type: 'Text', text: /^Parser rewrite$/, in: 'cc-@Parser rewrite' } as any)).toBeDefined()
-  // hover: the hint appears
-  await ui.pointer({ type: 'enter', x: 5, y: 1, in: 'cc-@Parser rewrite' } as any)
-  expect(await ui.find({ type: 'Text', text: /▸ click to unfold/, in: 'cc-@Parser rewrite' } as any)).toBeDefined()
+  // the Here card and an ordinary card alike
+  for (const key of ['cc-@Parser rewrite', 'cc-Docs audit']) expect(await ui.find({ key })).toBeDefined()
+  const title = () => ui.find({ type: 'Text', text: /^Docs audit$/, in: 'cc-Docs audit' } as any) as Promise<any>
+  const rows = async () => JSON.stringify(await ui.drawn({ in: 'cc-Docs audit' } as any)).length
+  const before = await rows()
+  // hover: the title underlines, nothing else changes size
+  await ui.pointer({ type: 'enter', x: 5, y: 1, in: 'cc-Docs audit' } as any)
+  expect((await title())?.props?.underline).toBe(true)
+  expect(Math.abs((await rows()) - before)).toBeLessThan(20)
   // a click on the grey line (row 1), not the title: the card unfolds
-  await ui.pointer({ type: 'down', x: 5, y: 1, button: 'left', in: 'cc-@Parser rewrite' } as any)
-  await ui.pointer({ type: 'up', x: 5, y: 1, button: 'left', in: 'cc-@Parser rewrite' } as any)
-  expect(await ui.find({ key: 'd-@Parser rewrite' })).toBeDefined()
+  await ui.pointer({ type: 'down', x: 5, y: 1, button: 'left', in: 'cc-Docs audit' } as any)
+  await ui.pointer({ type: 'up', x: 5, y: 1, button: 'left', in: 'cc-Docs audit' } as any)
+  expect(await ui.find({ key: 'd-Docs audit' })).toBeDefined()
   await ui.unmount()
 })
 
 test('a board in a session it does not know shows no Here', async ($, on) => {
   await start($, on)
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /◉ here/ })).toBeUndefined()
   await ui.unmount()
 })
@@ -574,7 +580,7 @@ test('a board in a session it does not know shows no Here', async ($, on) => {
 test('a review page is answered on the card and the answers go to its session in the page format', async ($, on) => {
   const store: Record<string, unknown> = {}
   await start($, on, store)
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   expect(await ui.find({ type: 'Text', text: /❓ 2 questions/ })).toBeDefined()
   await ui.press({ key: 't-Parser rewrite' })
@@ -602,7 +608,7 @@ test('a review page is answered on the card and the answers go to its session in
 
 test('one click opens a session; a subsession links up to its parent', async ($, on) => {
   await start($, on)
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   // closed card, one press: the session opens
   ran.length = 0
@@ -624,7 +630,7 @@ test('one click opens a session; a subsession links up to its parent', async ($,
 
 test('an open card lists related sessions, and one opens on its own', async ($, on) => {
   await start($, on)
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   await ui.press({ key: 't-Parser rewrite' })
   // Parser edge cases is its child; Docs audit wrote the same file

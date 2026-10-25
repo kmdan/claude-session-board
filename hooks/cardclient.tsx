@@ -7,6 +7,9 @@ import type { ClientModule } from 'claude-code'
 
 export type CardProps = {
   path: string
+  id: string
+  /** it just asked for you: opening it keeps it in place (the board's rule) */
+  isFresh: boolean
   title: string
   meta: string
   needs: string
@@ -28,7 +31,7 @@ const CardText: ClientModule<CardProps, Local> = (props, surface) => {
       else if (e.type === 'up' && e.button === 'left' && now.isDown) {
         surface.setState({ ...now, isDown: false })
         // the board toggles the card: its open state is shared with the rest of the board
-        surface.post({ kind: 'toggle', path: props.path })
+        surface.post({ kind: 'toggle', path: props.path, id: props.id, isFresh: props.isFresh })
       }
     })
   }
@@ -37,8 +40,8 @@ const CardText: ClientModule<CardProps, Local> = (props, surface) => {
     <Box flexDirection="column">
       <Text bold underline={isHover}>{props.title}</Text>
       <Text dimColor>{props.meta}</Text>
+      {/* hover only underlines the title: an added line made the cards jump */}
       {props.needs !== '' && <Text color={props.accent}>→ {props.needs}</Text>}
-      {isHover && <Text dimColor>{props.isOpen ? '▾ click to fold' : '▸ click to unfold'}</Text>}
     </Box>
   )
 }
