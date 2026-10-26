@@ -544,9 +544,19 @@ export const register: Register = on => {
     $.clock.every(120_000, () => {
       background($, tick($))
     })
-    // the quick part (snapshot, pane) is awaited; the indexing runs behind it
-    await openBoard($).catch(err => $.ui.log(`session-board: ${String(err)}`, { to: 'debug' }))
+    // the quick part (snapshot, pane) is awaited; the indexing runs behind it.
+    // A session the app resumes may start before its window attaches: opening
+    // then fails ("no surface is attached"): quietly, session.attach opens it.
+    await openBoard($).catch(err => {
+      if (!String(err).includes('no-surface')) $.ui.log(`session-board: ${String(err)}`, { to: 'debug' })
+    })
     return started
+  })
+
+  on('session.attach', async ($, e, next) => {
+    const attached = await next(e)
+    if (!isShown) background($, openBoard($))
+    return attached
   })
 
   on('command.run', { command: 'board' }, async $ => {
