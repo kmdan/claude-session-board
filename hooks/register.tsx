@@ -874,9 +874,10 @@ export const register: Register = on => {
             const isLast = i === visible.length - 1 && folded === 0
             if (ui.open === cPath || asksYou(c)) {
               return (
-                <Box key={`kb-${cPath}`} flexDirection="row">
-                  <Text dimColor>{isLast ? '└ ' : '├ '}</Text>
-                  <Box flexDirection="column" flexGrow={1}>{card(c, true, depth + 1, cPath)}</Box>
+                // indented, no connector (beside a card it floated mid-height); it may
+                // shrink, so a long needs line is cut with "…" and never pushes past the edge
+                <Box key={`kb-${cPath}`} flexDirection="column" flexShrink={1} minWidth={0} overflow="hidden" marginLeft={1}>
+                  {card(c, true, depth + 1, cPath)}
                 </Box>
               )
             }
@@ -909,7 +910,8 @@ export const register: Register = on => {
               </Box>
             )
           })}
-          {folded > 0 && (
+          {/* on a nested card, parked-only subsessions are not worth a line */}
+          {folded > 0 && !(depth > 0 && folded === quietCount) && (
             <Button key={`km-${path}`} plain onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, [`kids-${path}`]: true } }))}>
               <Text dimColor>└ {folded === quietCount ? `${quietCount} parked or done` : `${folded} more subsessions${quietCount ? ` (${quietCount} parked or done)` : ''}`}</Text>
             </Button>
@@ -989,7 +991,9 @@ export const register: Register = on => {
         <Box flexDirection="row" gap={1} flexShrink={0}>
           <Text wrap="truncate-end">
             {here && s.id === here.id && <Text color={HERE}>◉ here  </Text>}
-            <Text color={projectColor(s.project)}>● {projectLabel(s.project)}</Text>
+            {/* a nested card in its main session's project says nothing new with the tag */}
+            {!(depth > 0 && s.parent && byId.get(s.parent)?.project === s.project)
+              && <Text color={projectColor(s.project)}>● {projectLabel(s.project)}</Text>}
           </Text>
           {/* one click to the session itself; the title only unfolds the card */}
           {!(here && s.id === here.id) && (
@@ -1002,7 +1006,7 @@ export const register: Register = on => {
       // A Client region per card took clicks anywhere, but measured 2x slower
       // at 660 sessions and pushed "open" off the edge; it was removed.
       return (
-        <Box key={`c-${path}`} flexDirection="column" borderStyle="round" borderColor={borderOf(s)} paddingX={1} marginBottom={depth === 0 ? 1 : 0}>
+        <Box key={`c-${path}`} flexDirection="column" borderStyle="round" borderColor={borderOf(s)} paddingX={1} marginBottom={depth === 0 ? 1 : 0} minWidth={0}>
           {/* a subsession's main session, above its title: "Parent ›", one click up */}
           {parent && (
             <Box flexDirection="row" gap={1}>
