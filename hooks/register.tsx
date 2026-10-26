@@ -18,16 +18,21 @@ const SHOWN = 5
 // what waits on you, grey for the rest, the project colour only on a small dot.
 const ACCENT = '#c9a26b'
 const BORDER = '#3a3a40'
-// The pulse while indexing: an SVG animating itself (SMIL), so nothing redraws
-// the board on a timer. Drawn where the surface has Svg (desktop, vscode, mobile).
+// A session's dot, as a traffic light: brown pulse while it works, green pulse
+// when it finished and waits for you (not seen yet), grey once you have seen it.
+const WORKING = '#b08455'
+const READY = '#5fae6e'
+const SEEN = '#8a8a86'
+// The pulses are SVGs animating themselves (SMIL), so nothing redraws the board
+// on a timer. Drawn where the surface has Svg (desktop, vscode, mobile).
 const PULSE = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12">'
-  + '<circle cx="6" cy="6" r="4" fill="#c9a26b">'
+  + `<circle cx="6" cy="6" r="4" fill="${READY}">`
   + '<animate attributeName="opacity" values="1;0.2;1" dur="1.2s" repeatCount="indefinite"/>'
   + '<animate attributeName="r" values="4;2.6;4" dur="1.2s" repeatCount="indefinite"/>'
   + '</circle></svg>'
 
-// a session working right now: the same pulse, green and slower
-const PULSE_WORKING = PULSE.replace('#c9a26b', '#5fae6e').replaceAll('1.2s', '2s')
+// a session working right now (and the board indexing): brown and slower
+const PULSE_WORKING = PULSE.replace(READY, WORKING).replaceAll('1.2s', '2s')
 
 // The session this board is drawn in (the one being watched) gets the accent;
 // sessions related to it get a border the stronger the relation, in three steps.
@@ -36,7 +41,7 @@ const RELATED_BORDER: [number, string][] = [[8, '#8f7a55'], [4, '#6b5d45'], [2, 
 
 // the state of each session in a drawn thread, one quiet dot each
 const DOT: Record<State, string> = {
-  need: ACCENT, waiting: ACCENT, working: '#5fae6e', today: '#b0b0ac', week: '#9a9a96', earlier: '#9a9a96',
+  need: SEEN, waiting: SEEN, working: WORKING, today: SEEN, week: SEEN, earlier: SEEN,
   good: '#b8a46a', done: '#6f8fbf', parked: '#5a5a5e',
 }
 
@@ -634,7 +639,11 @@ export const register: Register = on => {
       const score = nearness.get(s.id) ?? 0
       return RELATED_BORDER.find(([min]) => score >= min)?.[1] ?? BORDER
     }
-    const inProject = ui.project ? all.filter(s => s.project === ui.project) : all
+    // one-off scratch folders (scratch-2026-10-21-4d8001) share one "scratch" chip;
+    // each still shows its own folder name on its card and is found by search
+    const chipOf = (p: string) => (p.startsWith('scratch-') ? 'scratch' : p)
+    const inChip = (s: Sess | undefined) => !ui.project || (!!s && chipOf(s.project) === ui.project)
+    const inProject = ui.project ? all.filter(inChip) : all
     const st = (s: Sess) => stateOf(s, marks, now)
     const groups: Record<State, Sess[]> = { need: [], waiting: [], working: [], today: [], week: [], earlier: [], good: [], done: [], parked: [] }
     // the watched session has its own place under Here, so it is not listed twice
@@ -654,17 +663,23 @@ export const register: Register = on => {
       const at = (s: Sess) => Math.max(s.last, kidsOf.get(s.id)?.[0]?.last ?? 0)
       // opening a card marks it seen, which ends its "fresh" place: the card you
       // just opened keeps that place while it is open, or it would vanish under the click
+      // A subsession whose main session is listed here (or is the Here card) is
+      // drawn on that card's rail, an asking one as a small card of its own: the
+      // family reads as one block. One whose main session is elsewhere gets its
+      // own card when it asks you, and is a rail row there otherwise.
       const onTop = (s: Sess) => isFresh(s) || asksYou(s) || (keptOnTop.has(s.id) && ui.open === s.id)
+      const familyAsks = (s: Sess) => (kidsOf.get(s.id) ?? []).some(asksYou)
+      const listedParent = (s: Sess) => !!s.parent && (ids.has(s.parent) || (!!here && s.parent === here.id))
       const nested = (s: Sess) => !!s.parent && (ids.has(s.parent) || (!ui.query && byId.has(s.parent)))
       return items
-        .filter(s => !nested(s) || onTop(s))
-        .sort((a, b) => Number(onTop(b)) - Number(onTop(a)) || at(b) - at(a))
+        .filter(s => !nested(s) || (onTop(s) && !listedParent(s)))
+        .sort((a, b) => Number(onTop(b) || familyAsks(b)) - Number(onTop(a) || familyAsks(a)) || at(b) - at(a))
     }
 
     // chips: every project with something this week, busiest first (a new project
     // must show from its first session; the row wraps)
     const weekCount: Record<string, number> = {}
-    for (const s of all) if (now - s.last < 7 * 86_400_000) weekCount[s.project] = (weekCount[s.project] ?? 0) + 1
+    for (const s of all) if (now - s.last < 7 * 86_400_000) weekCount[chipOf(s.project)] = (weekCount[chipOf(s.project)] ?? 0) + 1
     const chips = Object.entries(weekCount).sort((a, b) => b[1] - a[1]).map(([p]) => p)
 
     const stateWord: Record<State, string> = {
@@ -838,17 +853,26 @@ export const register: Register = on => {
     // title, state and age. A row opens into the child's own card in place.
     // `path` names this instance (a session may show at the top of one
     // section and nested under its parent too), so opening one opens only it.
+    // Parked and done subsessions fold into one "· N parked" line; one that asks
+    // you is drawn as a small card of its own right on the rail (its question, its
+    // needs line), so a family reads as one block.
     const children = (s: Sess, depth: number, path: string) => {
       const kids = kidsOf.get(s.id) ?? []
       if (kids.length === 0 || depth >= 3) return null
       const allShown = ui.shown[`kids-${path}`]
-      const visible = allShown ? kids : kids.slice(0, 4)
+      const isQuiet = (c: Sess) => ['parked', 'done'].includes(st(c)) && !isWorking(c, now)
+      const lively = kids.filter(c => !isQuiet(c))
+      const asking = lively.filter(asksYou)
+      const rest = lively.filter(c => !asksYou(c))
+      const visible = allShown ? [...asking, ...rest, ...kids.filter(isQuiet)] : [...asking, ...rest.slice(0, 4)]
+      const folded = kids.length - visible.length
+      const quietCount = kids.filter(isQuiet).length
       return (
         <Box flexDirection="column" marginTop={1} marginLeft={1}>
           {visible.map((c, i) => {
             const cPath = `${path}>${c.id}`
-            const isLast = i === visible.length - 1 && visible.length === kids.length
-            if (ui.open === cPath) {
+            const isLast = i === visible.length - 1 && folded === 0
+            if (ui.open === cPath || asksYou(c)) {
               return (
                 <Box key={`kb-${cPath}`} flexDirection="row">
                   <Text dimColor>{isLast ? '└ ' : '├ '}</Text>
@@ -864,7 +888,9 @@ export const register: Register = on => {
             const asks = !working && asksYou(c)
             const reported = !working && !asks && hasReported(c)
             const quiet = reported || cs === 'done' || cs === 'parked'
-            const word = working ? 'working' : asks ? 'asks you ↑' : reported ? 'reported' : stateWord[cs]
+            // "needs you" on a subsession you only touched today read as an ask: it is not one
+            const word = working ? 'working' : asks ? 'asks you' : reported ? 'reported'
+              : cs === 'need' ? 'touched today' : stateWord[cs]
             return (
               <Box key={`kr-${cPath}`} flexDirection="row" alignItems="center">
                 <Text dimColor>{isLast ? '└ ' : '├ '}</Text>
@@ -875,7 +901,7 @@ export const register: Register = on => {
                     ? <Svg source={PULSE} alt="just asked for you" width={10} height={10} isInteractive />
                     : reported
                       ? <Text dimColor>↩</Text>
-                      : <Text color={asks ? ACCENT : DOT[cs]}>●</Text>}
+                      : <Text color={DOT[cs]}>●</Text>}
                 <Button key={`k-${cPath}`} plain onPress={() => setUi(u => ({ ...u, open: cPath, tab: '' }))}>
                   <Text dimColor={quiet}> {c.title}</Text>
                   <Text dimColor={!asks} color={asks ? ACCENT : undefined}> {word} · {ago(now - c.last)}{grand ? ` · +${grand}` : ''}</Text>
@@ -883,9 +909,9 @@ export const register: Register = on => {
               </Box>
             )
           })}
-          {kids.length > visible.length && (
+          {folded > 0 && (
             <Button key={`km-${path}`} plain onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, [`kids-${path}`]: true } }))}>
-              <Text dimColor>└ {kids.length - visible.length} more subsessions</Text>
+              <Text dimColor>└ {folded === quietCount ? `${quietCount} parked or done` : `${folded} more subsessions${quietCount ? ` (${quietCount} parked or done)` : ''}`}</Text>
             </Button>
           )}
         </Box>
@@ -908,7 +934,7 @@ export const register: Register = on => {
       // only what matters now: file, media and page counts are on the card's tabs
       const asks = openPages(s)
       const askCount = asks.reduce((sum, p) => sum + p.qs.length, 0)
-      if (askCount) meta.unshift(`? ${askCount} question${askCount > 1 ? 's' : ''}`)
+      // the count of open questions is drawn ahead of the meta in the accent: a scan finds them
       const openTodos = (notes[s.id] ?? []).filter(n => !n.done && !n.sent)
       if (openTodos.length) {
         const dueNow = openTodos.filter(n => ['overdue', 'today'].includes(dueBucket(n.due, now))).length
@@ -947,13 +973,17 @@ export const register: Register = on => {
         if (isFresh(s)) background($, markSeen($, s.id))
       }
       const showNeeds = (isOpen || state === 'need') && s.needs !== ''
+      // one dot, a traffic light: brown pulse working, green pulse done and not seen, then still
       const dots = [
-        isWorking(s, now) && (Svg
-          ? <Svg key={`dw-${path}`} source={PULSE_WORKING} alt="working now" width={12} height={12} isInteractive />
-          : <Text key={`dw-${path}`} color={DOT.working}>●</Text>),
-        isFresh(s) && (Svg
-          ? <Svg key={`df-${path}`} source={PULSE} alt="just asked for you" width={12} height={12} isInteractive />
-          : <Text key={`df-${path}`} color={ACCENT}>●</Text>),
+        isWorking(s, now)
+          ? (Svg
+            ? <Svg key={`dw-${path}`} source={PULSE_WORKING} alt="working now" width={12} height={12} isInteractive />
+            : <Text key={`dw-${path}`} color={WORKING}>●</Text>)
+          : isFresh(s)
+            ? (Svg
+              ? <Svg key={`df-${path}`} source={PULSE} alt="just asked for you" width={12} height={12} isInteractive />
+              : <Text key={`df-${path}`} color={READY}>●</Text>)
+            : <Text key={`ds-${path}`} color={DOT[state]}>●</Text>,
       ]
       const corner = (
         <Box flexDirection="row" gap={1} flexShrink={0}>
@@ -976,11 +1006,9 @@ export const register: Register = on => {
           {/* a subsession's main session, above its title: "Parent ›", one click up */}
           {parent && (
             <Box flexDirection="row" gap={1}>
+              {/* one "open ↗" per card, the card's own: the parent is one click up from here */}
               <Button key={`up-${path}`} plain onPress={() => setUi(u => ({ ...u, view: 'focus', focus: parent.id, open: '', tab: '' }))}>
                 <Text dimColor>{parent.title} ›</Text>
-              </Button>
-              <Button key={`upo-${path}`} plain onPress={() => background($, openSession($, parent.id))}>
-                {opening === parent.id ? <Text color={ACCENT}>opening…</Text> : <Text dimColor>open ↗</Text>}
               </Button>
             </Box>
           )}
@@ -994,7 +1022,8 @@ export const register: Register = on => {
             {corner}
           </Box>
           <Button key={`tm-${path}`} plain onPress={toggleCard}>
-            <Text dimColor>{meta.join(' · ')}</Text>
+            {askCount > 0 && <Text color={ACCENT}>? {askCount}</Text>}
+            <Text dimColor>{askCount ? ` question${askCount > 1 ? 's' : ''} · ` : ''}{meta.join(' · ')}</Text>
           </Button>
           {showNeeds && (
             <Button key={`tn-${path}`} plain onPress={toggleCard}>
@@ -1093,6 +1122,9 @@ export const register: Register = on => {
           </Box>
           <Text color={projectColor(s.project)}>{projectLabel(s.project)}</Text>
           <Text dimColor>{ago(now - s.last)}</Text>
+          {/* quick marks without unfolding: done, park (undo: the card's Auto button) */}
+          <Button key={`rd-${s.id}`} plain dimColor onPress={() => background($, mark($, s.id, 'done', s.title))}>✓</Button>
+          <Button key={`rp-${s.id}`} plain dimColor onPress={() => background($, mark($, s.id, 'parked', s.title))}>⏸</Button>
           <Button key={`go-${s.id}`} plain onPress={() => background($, openSession($, s.id))}>
             {opening === s.id ? <Text color={ACCENT}>opening…</Text> : <Text dimColor>↗</Text>}
           </Button>
@@ -1203,7 +1235,7 @@ export const register: Register = on => {
     const todosView = () => {
       const shown = allTodos.filter(r =>
         (!ui.label || (r.n.labels ?? []).includes(ui.label))
-        && (!ui.project || r.owner === INBOX || r.s?.project === ui.project))
+        && (!ui.project || r.owner === INBOX || inChip(r.s)))
       const open = shown.filter(r => !r.n.done)
       const done = shown.filter(r => r.n.done)
       const byDue = (a: Row, b: Row) => (a.n.due ?? '9999').localeCompare(b.n.due ?? '9999') || a.n.at - b.n.at
@@ -1267,7 +1299,7 @@ export const register: Register = on => {
     const foundIds = new Set(found.map(s => s.id))
     const said = fullText.query === ui.query.trim()
       // never name a variable `h` in this file: JSX compiles to calls of the global `h`
-      ? fullText.hits.map(hit => ({ hit, s: byCli.get(hit.cli) })).filter(x => x.s && (!ui.project || x.s.project === ui.project))
+      ? fullText.hits.map(hit => ({ hit, s: byCli.get(hit.cli) })).filter(x => x.s && inChip(x.s))
       : []
     const saidView = () => {
       if (ui.query.trim().length < 3) return null
@@ -1308,7 +1340,7 @@ export const register: Register = on => {
             {asking > 0 && <Text color={ACCENT}> · ? {asking}</Text>}
           </Text>
           <Box flexDirection="row" gap={1} alignItems="center">
-            {ix.isLoading && Svg && <Svg source={PULSE} alt="indexing" width={12} height={12} isInteractive />}
+            {ix.isLoading && Svg && <Svg source={PULSE_WORKING} alt="indexing" width={12} height={12} isInteractive />}
             <Button key="refresh" plain onPress={() => background($, refresh($))}>
               <Text dimColor>{ix.isLoading ? 'indexing…' : 'refresh'}</Text>
             </Button>

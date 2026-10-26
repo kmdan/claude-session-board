@@ -39,7 +39,7 @@ WRITE_RE = re.compile(
 COMMIT_RE = re.compile(r"\[[\w./-]+(?: \(root-commit\))? ([0-9a-f]{7,12})\] |(?:\\n|\"text\":\")([0-9a-f]{7,12}) ")
 MAX_FILES = 60
 # bump when scan_transcript records something new: cached scans of an older version are redone
-SCAN_VERSION = 5
+SCAN_VERSION = 6
 # any drive-letter path to a movie, image or html page, anywhere in the row (JSON-escaped)
 MEDIA_RE = re.compile(
     # bounded: unbounded, every path in a long row was walked to the row's end (20 s -> 239 s)
@@ -111,15 +111,39 @@ def answered_title(text, line):
     return m.group(1).strip(), at
 
 
-def scan_transcript(path, text_path):
-    files = {}
-    commits = []
-    media = {}  # lower-cased path -> path as first seen, in order of last mention
-    said = []
-    answers = []  # review pages answered in the chat: [{title, at}]
-    after_commit = False  # the result row that follows a "git commit" call
+HEAD_BYTES = 256
+
+
+def head_of(path):
+    """The transcript's first bytes: a transcript only grows, so the same head means
+    the part read before is still there and only the end is new."""
     with open(path, "rb") as f:
+        return f.read(HEAD_BYTES).decode("latin-1")
+
+
+def scan_transcript(path, text_path, prev=None):
+    """
+    What a transcript says: (info for the board, state to resume from).
+
+    With `prev` (the state of an earlier scan of the same transcript) only the
+    rows written since are read and the conversation text is appended to: a
+    long session that wrote one more turn costs that turn, not the whole file.
+    """
+    prev = prev or {}
+    files = dict(prev.get("files") or {})
+    commits = list(prev.get("commits") or [])
+    # lower-cased path -> path as first seen, in order of last mention
+    media = {p.lower(): p for p in prev.get("media") or []}
+    said = []
+    answers = list(prev.get("answers") or [])  # review pages answered in the chat: [{title, at}]
+    after_commit = bool(prev.get("after"))  # the result row that follows a "git commit" call
+    start = offset = prev.get("offset") or 0
+    with open(path, "rb") as f:
+        f.seek(offset)
         for raw in f:
+            if not raw.endswith(b"\n"):
+                break  # a row still being written: read it whole next time
+            offset += len(raw)
             line = raw.decode("utf-8", "replace")
             text = conversation_text(line)
             if text:
@@ -152,9 +176,13 @@ def scan_transcript(path, text_path):
                     if h not in commits:
                         commits.append(h)
     os.makedirs(os.path.dirname(text_path), exist_ok=True)
-    with open(text_path, "wb") as f:
+    with open(text_path, "ab" if start else "wb") as f:
         f.write("".join(said).encode("utf-8"))
     top = sorted(files.items(), key=lambda kv: -kv[1])[:MAX_FILES]
+    state = {
+        "offset": offset, "head": head_of(path), "files": files, "commits": commits[-40:],
+        "media": list(media.values())[-400:], "answers": answers[-50:], "after": after_commit,
+    }
     return {
         "files": [p for p, _ in top], "fileCount": len(files), "commits": commits[-12:],
         # newest mention first; existence is checked on every run, not cached
@@ -164,7 +192,7 @@ def scan_transcript(path, text_path):
         "pagesWritten": [p for p in files if p.lower().endswith((".html", ".htm"))],
         "answers": answers[-50:],
         "v": SCAN_VERSION,
-    }
+    }, state
 
 
 def search(cache_dir, query):
@@ -356,6 +384,40 @@ def quick(since_ms):
     return rows
 
 
+STALE_TMP_S = 600
+
+
+def write_cache(cache_path, new_cache):
+    """
+    Several sessions index at once: each writes its own tmp and swaps it in. On
+    Windows the swap fails while another process has the cache open, and a run
+    can be killed mid-write: either way the tmp is removed (the cache already
+    there stays; the next run writes again), and tmps older than ten minutes,
+    left by runs that died, are swept. 107 of them had piled up to 240 MB.
+    """
+    folder = os.path.dirname(cache_path)
+    os.makedirs(folder, exist_ok=True)
+    tmp = f"{cache_path}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "wb") as f:
+            f.write(json.dumps(new_cache).encode("utf-8"))
+        os.replace(tmp, cache_path)
+    except OSError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    name = os.path.basename(cache_path)
+    now = time.time()
+    for e in os.scandir(folder):
+        if e.name.startswith(name + ".") and e.name.endswith(".tmp"):
+            try:
+                if now - e.stat().st_mtime > STALE_TMP_S:
+                    os.remove(e.path)
+            except OSError:
+                pass
+
+
 def main():
     t0 = time.time()
     if sys.argv[1] == "--search":
@@ -388,7 +450,7 @@ def main():
                         transcripts[f.name[:-6]] = f.path
 
     out = []
-    scanned = cached = missing = 0
+    scanned = cached = missing = resumed = 0
     new_cache = {}
     for mp in metas:
         try:
@@ -403,13 +465,20 @@ def main():
             key = f"{st.st_size}:{int(st.st_mtime)}"
             hit = cache.get(tp)
             text_path = os.path.join(text_dir, f"{cli}.txt")
-            if hit and hit.get("key") == key and hit["info"].get("v") == SCAN_VERSION and os.path.exists(text_path):
-                info = hit["info"]
+            fresh = hit and hit["info"].get("v") == SCAN_VERSION and os.path.exists(text_path)
+            if fresh and hit.get("key") == key:
+                info, state = hit["info"], hit.get("state")
                 cached += 1
             else:
-                info = scan_transcript(tp, text_path)
+                # grown since: read only the new rows, if what was read is still its start
+                prev = hit.get("state") if fresh else None
+                if prev and (st.st_size < prev.get("offset", 0) or head_of(tp) != prev.get("head")):
+                    prev = None
+                info, state = scan_transcript(tp, text_path, prev)
+                if prev:
+                    resumed += 1
                 scanned += 1
-            new_cache[tp] = {"key": key, "info": info}
+            new_cache[tp] = {"key": key, "info": info, "state": state}
         else:
             missing += 1
         info = dict(info)
@@ -445,15 +514,10 @@ def main():
             **info,
         })
 
-    # several sessions may index at once: each writes its own tmp, the replace is atomic
-    tmp = f"{cache_path}.{os.getpid()}.tmp"
-    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-    with open(tmp, "wb") as f:
-        f.write(json.dumps(new_cache).encode("utf-8"))
-    os.replace(tmp, cache_path)
+    write_cache(cache_path, new_cache)
 
     sys.stdout.buffer.write(json.dumps({
-        "sessions": out, "scanned": scanned, "cached": cached, "missing": missing,
+        "sessions": out, "scanned": scanned, "resumed": resumed, "cached": cached, "missing": missing,
         "ms": int((time.time() - t0) * 1000),
     }, ensure_ascii=True).encode("ascii"))
 

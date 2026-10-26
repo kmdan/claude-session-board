@@ -196,7 +196,7 @@ test('timing at a real size: 660 sessions, first draw, a search keystroke, unfol
   }
 })
 
-test('a subsession that just asked gets its own card on top, and its parent says so', async ($, on) => {
+test('a subsession that just asked is a card on its main card, which says so and comes first', async ($, on) => {
   const child = INDEX.sessions[1] as any
   const saved = { last: child.last }
   child.last = Date.now() // Parser edge cases (a child of Parser rewrite) asks right now
@@ -204,20 +204,19 @@ test('a subsession that just asked gets its own card on top, and its parent says
   try {
     await start($, on)
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-    // its own card, in Needs you, not only a row under the parent
-    expect(await ui.find({ key: 't-Parser edge cases' })).toBeDefined()
+    // its main session is in Needs you too: it is a small card on that card's rail, not a second card
+    const nested = 't-Parser rewrite>Parser edge cases'
+    expect(await ui.find({ key: nested })).toBeDefined()
+    expect(await ui.find({ key: 't-Parser edge cases' })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: /1 sub asks you/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^NEEDS YOU · 2/ })).toBeDefined()
-    // its main session sits above its title, one click up
-    expect(await ui.find({ type: 'Text', text: /^Parser rewrite ›$/ })).toBeDefined()
-    // on its parent's rail it points up to its card
-    expect(await ui.find({ type: 'Text', text: /asks you ↑/ })).toBeDefined()
-    // opening it marks it seen; it must not vanish under the click (back into its parent)
-    await ui.press({ key: 't-Parser edge cases' })
-    expect(await ui.find({ key: 'o-Parser edge cases' })).toBeDefined()
-    // seen and closed, it still waits on you: it keeps its own card
-    await ui.press({ key: 't-Parser edge cases' })
-    expect(await ui.find({ key: 't-Parser edge cases' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^NEEDS YOU · 1/ })).toBeDefined()
+    // nested, it needs no "Parent ›" line: it sits under its parent
+    expect(await ui.find({ type: 'Text', text: /^Parser rewrite ›$/ })).toBeUndefined()
+    // opening it marks it seen; it stays where it is
+    await ui.press({ key: nested })
+    expect(await ui.find({ key: 'o-Parser rewrite>Parser edge cases' })).toBeDefined()
+    await ui.press({ key: nested })
+    expect(await ui.find({ key: nested })).toBeDefined()
     await ui.unmount()
   } finally {
     child.last = saved.last
@@ -413,8 +412,9 @@ test('the watched session is listed once, under Here, and the header counts what
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ key: 't-@Parser rewrite' })).toBeDefined()
   expect(await ui.find({ key: 't-Parser rewrite' })).toBeUndefined()
-  // Parser rewrite is Here, so 0 need you; its child waits (its parent is not in that list)
-  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 1 waiting · 1 working · 0 good enough · ? 1')
+  // Parser rewrite is Here, so 0 need you; its waiting child is on the Here card's rail, not counted again
+  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 0 waiting · 1 working · 0 good enough · ? 1')
+  expect(await ui.find({ key: 't-@Parser rewrite>Parser edge cases' })).toBeDefined()
   await ui.unmount()
 })
 
@@ -544,12 +544,10 @@ test('subsessions show live under their parent card and open in place', async ($
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  // Parser edge cases is Parser rewrite's child: a row under the parent, closed card or not
-  expect(await ui.find({ key: 'k-Parser rewrite>Parser edge cases' })).toBeDefined()
-  // it waits on you (blocked): its rail row says so and points up to its own card
-  expect(await ui.find({ type: 'Text', text: /asks you ↑ · 3 d/ })).toBeDefined()
-  await ui.press({ key: 'k-Parser rewrite>Parser edge cases' })
-  // it opens as its own card, nested: its buttons carry the nested path
+  // Parser edge cases is Parser rewrite's child and waits on you (blocked): a small card on the rail
+  expect(await ui.find({ key: 't-Parser rewrite>Parser edge cases' })).toBeDefined()
+  await ui.press({ key: 't-Parser rewrite>Parser edge cases' })
+  // it unfolds in place, nested: its buttons carry the nested path
   expect(await ui.find({ key: 'o-Parser rewrite>Parser edge cases' })).toBeDefined()
   // and it still has its own place in "Still waiting", a different section
   await ui.press({ key: 'show-waiting' })
@@ -594,7 +592,8 @@ test('a review page is answered on the card and the answers go to its session in
   await start($, on, store)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  expect(await ui.find({ type: 'Text', text: /\? 2 questions/ })).toBeDefined()
+  // the count in the accent, its word in the grey of the meta
+  expect(await ui.find({ type: 'Text', text: /^\? 2$/ })).toBeDefined()
   // with questions open, the card unfolds straight onto them
   await ui.press({ key: 't-Parser rewrite' })
   expect(await ui.find({ type: 'Text', text: /^Q1\. Keep the old API\?/ })).toBeDefined()
@@ -616,7 +615,7 @@ test('a review page is answered on the card and the answers go to its session in
   }])
 
   // answered: the badge goes, the tab says so, and the page is remembered
-  expect(await ui.find({ type: 'Text', text: /\? 2 questions/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^\? 2$/ })).toBeUndefined()
   expect(await ui.find({ key: 'tab-Parser rewrite-questions' })).toMatchObject({ props: { } })
   expect(Object.keys(store.answered as object)).toEqual(['C:\\out\\questions.html'])
   expect(await ui.find({ type: 'Text', text: /✓ Parser: open questions · answered/ })).toBeDefined()
@@ -634,11 +633,12 @@ test('one click opens a session; a subsession links up to its parent', async ($,
   // the app takes seconds to switch: the button answers at once
   expect(await ui.find({ type: 'Text', text: /^opening…$/ })).toBeDefined()
 
-  // the subsession's own card (in Still waiting) carries its way up
+  // the subsession's own card (in Still waiting) carries its way up, and one "open ↗": its own
   await ui.press({ key: 'show-waiting' })
+  expect(await ui.find({ key: 'upo-Parser edge cases' })).toBeUndefined()
   ran.length = 0
-  await ui.press({ key: 'upo-Parser edge cases' })
-  expect(ran.some(a => a.join(' ').includes('claude://claude.ai/epitaxy/Parser rewrite'))).toBe(true)
+  await ui.press({ key: 'go-Parser edge cases' })
+  expect(ran.some(a => a.join(' ').includes('claude://claude.ai/epitaxy/Parser edge cases'))).toBe(true)
   await ui.press({ key: 'up-Parser edge cases' })
   expect(await ui.find({ type: 'Text', text: /back to the board/ })).toBeDefined()
   expect(await ui.find({ key: 't-Parser rewrite' })).toBeDefined()
@@ -655,5 +655,16 @@ test('an open card lists related sessions, and one opens on its own', async ($, 
   await ui.press({ key: 'r-Parser rewrite-Parser edge cases' })
   expect(await ui.find({ type: 'Text', text: /back to the board/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^\s*still waiting/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a quiet line marks its session done or parked in one click, without unfolding', async ($, on) => {
+  await start($, on)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // Docs audit is a one-line row (working, not waiting on you)
+  expect(await ui.find({ key: 'rd-Docs audit' })).toBeDefined()
+  await ui.press({ key: 'rd-Docs audit' })
+  expect(await ui.find({ key: 'rd-Docs audit' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^Done · 1 ›/ })).toBeDefined()
   await ui.unmount()
 })

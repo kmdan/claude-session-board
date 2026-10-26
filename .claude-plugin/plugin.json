@@ -1,6 +1,6 @@
 {
   "name": "session-board",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "A calm board of every Claude Code desktop session: what needs you, what runs, what is good enough, with Todoist-style todos, media, subsessions and full-text search.",
   "license": "MIT",
   "types": "./types/index.d.ts"
