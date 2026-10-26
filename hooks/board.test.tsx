@@ -566,21 +566,19 @@ test('the watched session is marked and pinned under Here; elsewhere there is no
   await ui.unmount()
 })
 
-test('desktop: title, grey line and needs line are one button that unfolds the card; no layer over the answers', async ($, on) => {
+test('desktop: the title, the grey line and the needs line each unfold the card; no layer over the answers', async ($, on) => {
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const t = (await ui.find({ key: 't-Parser rewrite' })) as any
-  const said = JSON.stringify(t?.props?.children ?? t)
-  expect(said).toMatch(/\? 2 questions · waiting/)
-  expect(said).toMatch(/→ /)
   // no blank layer anywhere: the desktop painted it over the answers and Open
   expect(await ui.find({ key: 'tb-Parser rewrite' })).toBeUndefined()
-  await ui.press({ key: 't-Parser rewrite' })
-  expect(await ui.find({ key: 'd-Parser rewrite' })).toBeDefined()
-  // the answers on the unfolded card are their own buttons
-  expect(await ui.find({ key: 'qo-Parser rewrite-0-Q1-1' })).toBeDefined()
-  await ui.press({ key: 't-Parser rewrite' })
-  expect(await ui.find({ key: 'd-Parser rewrite' })).toBeUndefined()
+  for (const line of ['t', 'tm', 'tn']) {
+    await ui.press({ key: `${line}-Parser rewrite` })
+    expect(await ui.find({ key: 'd-Parser rewrite' })).toBeDefined()
+    // the answers on the unfolded card are their own buttons
+    expect(await ui.find({ key: 'qo-Parser rewrite-0-Q1-1' })).toBeDefined()
+    await ui.press({ key: `${line}-Parser rewrite` })
+    expect(await ui.find({ key: 'd-Parser rewrite' })).toBeUndefined()
+  }
   await ui.unmount()
 })
 

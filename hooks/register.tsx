@@ -895,9 +895,9 @@ export const register: Register = on => {
     // A button takes clicks only on its own box. Tried and dropped: padding the
     // lines out (wrapped them in the desktop's proportional font) and a blank
     // button laid under the card (the desktop paints an absolute box above the
-    // rest whatever the order: it swallowed the answers and Open). So a card's
-    // title, grey line and needs line are ONE button: one box, blank beside the
-    // shorter lines included.
+    // rest whatever the order: it swallowed the answers and Open), and one button
+    // for all three lines (the desktop ignores line breaks in a button: they ran
+    // into one line and pushed the corner off). So each line is its own button.
 
     const card = (s: Sess, withState = false, depth = 0, path = s.id) => {
       const state = st(s)
@@ -985,16 +985,22 @@ export const register: Register = on => {
             </Box>
           )}
           <Box flexDirection="row" justifyContent="space-between" gap={1}>
-            <Box flexDirection="row" gap={1} flexShrink={1}>
-              {dots.some(Boolean) && <Box flexDirection="column" paddingTop={0}>{dots}</Box>}
+            <Box flexDirection="row" gap={1} flexShrink={1} alignItems="center">
+              {dots}
               <Button key={`t-${path}`} plain onPress={toggleCard}>
                 <Text bold>{s.title}</Text>
-                <Text dimColor>{'\n'}{meta.join(' · ')}</Text>
-                {showNeeds && <Text color={ACCENT}>{'\n'}→ {s.needs}</Text>}
               </Button>
             </Box>
             {corner}
           </Box>
+          <Button key={`tm-${path}`} plain onPress={toggleCard}>
+            <Text dimColor>{meta.join(' · ')}</Text>
+          </Button>
+          {showNeeds && (
+            <Button key={`tn-${path}`} plain onPress={toggleCard}>
+              <Text color={ACCENT}>→ {s.needs}</Text>
+            </Button>
+          )}
           {children(s, depth, path)}
           {isOpen && (
             <Box flexDirection="column" marginTop={1}>
