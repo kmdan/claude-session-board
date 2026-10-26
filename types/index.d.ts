@@ -117,8 +117,9 @@ export type Ui = {
   /** label filter of the Todos view; '' = all */
   label: string
   focus: string
-  /** the one detail tab open on the open card ('' = none): one at a time keeps an open card short */
-  tab: '' | 'questions' | 'media' | 'files' | 'related' | 'notes'
+  /** the one detail tab open on the open card, one at a time keeps an open card short:
+   *  '' = automatic (Questions while some are open), 'none' = closed by hand */
+  tab: '' | 'none' | 'questions' | 'media' | 'files' | 'related' | 'notes'
 }
 
 /** A full-text search over the conversations: one hit per matching session. */

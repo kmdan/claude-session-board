@@ -595,7 +595,12 @@ test('a review page is answered on the card and the answers go to its session in
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   expect(await ui.find({ type: 'Text', text: /❓ 2 questions/ })).toBeDefined()
+  // with questions open, the card unfolds straight onto them
   await ui.press({ key: 't-Parser rewrite' })
+  expect(await ui.find({ type: 'Text', text: /^Q1\. Keep the old API\?/ })).toBeDefined()
+  // the tab closes them by hand, and opens them again
+  await ui.press({ key: 'tab-Parser rewrite-questions' })
+  expect(await ui.find({ type: 'Text', text: /^Q1\. Keep the old API\?/ })).toBeUndefined()
   await ui.press({ key: 'tab-Parser rewrite-questions' })
   expect(await ui.find({ type: 'Text', text: /^Q1\. Keep the old API\?/ })).toBeDefined()
 

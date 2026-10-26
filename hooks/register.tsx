@@ -765,6 +765,8 @@ export const register: Register = on => {
                   return (
                     <Box key={`qq-${path}-${pi}-${q.q}`} flexDirection="column" marginTop={1}>
                       <Text>{q.title}{q.to !== 'me' ? <Text dimColor>  [for {q.to}]</Text> : null}</Text>
+                      {/* the options side by side under their question: one click answers */}
+                      <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
                       {q.opts.map((o, oi) => (
                         <Button key={`qo-${path}-${pi}-${q.q}-${oi}`} plain
                           onPress={() => background($, setDraft($, key, { pick: d.pick === o.value ? '' : o.value }))}>
@@ -774,6 +776,7 @@ export const register: Register = on => {
                           {o.rec && <Text color={DOT.good}> ★</Text>}
                         </Button>
                       ))}
+                      </Box>
                       {q.notes && (
                         <Input key={`qn-${path}-${pi}-${q.q}`} placeholder="note" value={d.note ?? ''}
                           onInput={v => background($, setDraft($, key, { note: v }))}
@@ -941,8 +944,9 @@ export const register: Register = on => {
       if (rel.length) tabs.push({ key: 'related', label: `Related ${rel.length}${clash.length ? ' ⚠' : ''}` })
       const openCount = allNotes.filter(n => !n.done).length
       tabs.push({ key: 'notes', label: allNotes.length ? `Todos ${openCount}` : '+ Todo' })
-      const tab = isOpen ? ui.tab : ''
-      const toggleTab = (k: Ui['tab']) => setUi(u => ({ ...u, tab: u.tab === k ? '' : k }))
+      // a card with open questions unfolds onto them: answering is what it waits for
+      const tab = !isOpen ? '' : ui.tab === '' ? (askCount ? 'questions' : '') : ui.tab
+      const toggleTab = (k: Ui['tab']) => setUi(u => ({ ...u, tab: tab === k ? 'none' : k }))
       const toggleCard = () => {
         const isOpening = ui.open !== path
         if (isOpening && isFresh(s)) keptOnTop.add(s.id)
