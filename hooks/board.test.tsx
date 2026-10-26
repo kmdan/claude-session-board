@@ -375,6 +375,20 @@ test('Enter searches what was said in conversations, and a hit opens its card', 
   expect(await ui.find({ type: 'Text', text: /flaky timeout came back/ })).toBeDefined()
   await ui.press({ key: 'ft-Old probe' })
   expect(await ui.find({ key: 'o-ft>Old probe' })).toBeDefined()
+  // emptying the box (no Enter) brings the board back at once, with no wait on a timer
+  await ui.input({ key: 'q', text: '', kind: 'change' })
+  expect(await ui.find({ type: 'Text', text: /Said in conversations/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^NEEDS YOU/ })).toBeDefined()
+  // a second search after it works too, and clears again
+  await ui.input({ key: 'q', text: 'parser', kind: 'change' })
+  await clock.advance(200)
+  expect(await ui.find({ type: 'Text', text: /^FOUND FOR "parser"/ })).toBeDefined()
+  // ✕ clears in one click: the board is back and the box drawn anew, empty
+  await ui.press({ key: 'q-clear' })
+  expect(await ui.find({ type: 'Text', text: /^FOUND FOR/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^NEEDS YOU/ })).toBeDefined()
+  expect(await ui.find({ key: 'q1' })).toBeDefined()
+  expect(await ui.find({ key: 'q-clear' })).toBeUndefined()
   await ui.unmount()
 })
 

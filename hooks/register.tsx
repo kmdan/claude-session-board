@@ -1350,23 +1350,42 @@ export const register: Register = on => {
             </Button>
           </Box>
         </Box>
-        <Input
-          key="q"
-          placeholder="Search titles, files, media, commits… Enter: also what was said"
-          // not bound to ui.query: the field keeps what is typed itself, and the
-          // board redraws once typing pauses (150 ms), not on every letter
-          onInput={v => {
-            typedQuery = v
-            $.clock.after(150, () => {
-              if (typedQuery === v) setUi(u => (u.query === v ? u : { ...u, query: v }))
-            })
-          }}
-          onSubmit={v => {
-            typedQuery = v
-            setUi(u => ({ ...u, query: v, view: 'board' }))
-            background($, searchText($, v))
-          }}
-        />
+        <Box flexDirection="row" gap={1} alignItems="center">
+          <Box flexGrow={1} flexShrink={1}>
+            <Input
+              // a new key draws a fresh, empty box: how ✕ clears a field the board does not bind
+              key={ui.cleared ? `q${ui.cleared}` : 'q'}
+              placeholder="Search titles, files, media, commits… Enter: also what was said"
+              // not bound to ui.query: the field keeps what is typed itself, and the
+              // board redraws once typing pauses (150 ms), not on every letter. An
+              // emptied box clears at once: it must never wait on the timer (in the
+              // app the search stayed stuck until Enter)
+              onInput={v => {
+                typedQuery = v
+                if (v.trim() === '') {
+                  setUi(u => (u.query === '' ? u : { ...u, query: '' }))
+                  return
+                }
+                $.clock.after(150, () => {
+                  if (typedQuery === v) setUi(u => (u.query === v ? u : { ...u, query: v }))
+                })
+              }}
+              onSubmit={v => {
+                typedQuery = v
+                setUi(u => ({ ...u, query: v, view: 'board' }))
+                background($, searchText($, v))
+              }}
+            />
+          </Box>
+          {ui.query !== '' && (
+            <Button key="q-clear" plain onPress={() => {
+              typedQuery = ''
+              setUi(u => ({ ...u, query: '', cleared: (u.cleared ?? 0) + 1 }))
+            }}>
+              <Text dimColor>✕ clear</Text>
+            </Button>
+          )}
+        </Box>
         <Box flexDirection="row" flexWrap="wrap" gap={1} marginY={1}>
           <Button key="v-board" variant={ui.view === 'board' || ui.view === 'focus' ? 'primary' : 'secondary'} label="Board" onPress={() => setUi(u => ({ ...u, view: 'board' }))} />
           <Button key="v-todos" variant={ui.view === 'todos' ? 'primary' : 'secondary'}

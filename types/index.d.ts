@@ -101,6 +101,8 @@ export type Notes = Record<string, Note[]>
 
 export type Ui = {
   query: string
+  /** how often the search box was cleared by its ✕: its key, so the app draws a fresh empty box */
+  cleared?: number
   /** project filter; '' = all */
   project: string
   /** the card shown open, '' = none */
