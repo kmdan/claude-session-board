@@ -897,13 +897,15 @@ export const register: Register = on => {
     // button under everything, stretched over the whole box (absolute, first
     // child: what is drawn after it paints over it and keeps its own clicks).
     // Its text is the Braille blank (U+2800), drawn as nothing and never trimmed
-    // as whitespace is, with plain spaces between so it wraps to the card's width
-    // (long unbroken lines were cut with a visible "…"); the rows past the card are clipped.
-    const BLANK = Array.from({ length: 900 }, () => '⠀').join(' ')
-    const under = (key: string, onPress: () => void) => (
+    // as whitespace is. The desktop button never wraps and cuts what does not fit
+    // with a visible "…" (measured: wrapping text and 100-wide lines both showed
+    // it), so the lines stop at 60% of the pane: nothing is ever cut.
+    const blankLine = '⠀'.repeat(Math.max(10, Math.floor(((e.props.bodyColumns ?? 60) - 6) * 0.6)))
+    const BLANK_CARD = Array.from({ length: 6 }, () => blankLine).join('\n')
+    const under = (key: string, onPress: () => void, lines = BLANK_CARD) => (
       <Box position="absolute" top={0} left={0} right={0} bottom={0} overflow="hidden" flexDirection="row" alignItems="stretch">
         {/* no `label`: the desktop draws a label in place of the children (measured: "Unfold" showed) */}
-        <Button key={key} plain onPress={onPress}><Text wrap="wrap">{BLANK}</Text></Button>
+        <Button key={key} plain onPress={onPress}><Text>{lines}</Text></Button>
       </Box>
     )
 
@@ -916,7 +918,7 @@ export const register: Register = on => {
       // only what matters now: file, media and page counts are on the card's tabs
       const asks = openPages(s)
       const askCount = asks.reduce((sum, p) => sum + p.qs.length, 0)
-      if (askCount) meta.unshift(`❓ ${askCount} question${askCount > 1 ? 's' : ''}`)
+      if (askCount) meta.unshift(`? ${askCount} question${askCount > 1 ? 's' : ''}`)
       const openTodos = (notes[s.id] ?? []).filter(n => !n.done && !n.sent)
       if (openTodos.length) {
         const dueNow = openTodos.filter(n => ['overdue', 'today'].includes(dueBucket(n.due, now))).length
@@ -938,7 +940,7 @@ export const register: Register = on => {
       const allNotes = notes[s.id] ?? []
       // one detail tab at a time, five items at most: the open card stays short
       const tabs: { key: Ui['tab']; label: string }[] = []
-      if (s.questions.length) tabs.push({ key: 'questions', label: askCount ? `❓ Questions ${askCount}` : 'Questions ✓' })
+      if (s.questions.length) tabs.push({ key: 'questions', label: askCount ? `? Questions ${askCount}` : 'Questions ✓' })
       if (s.media.length + s.artifacts.length) tabs.push({ key: 'media', label: `Media ${s.media.length + s.artifacts.length}` })
       if (s.fileCount) tabs.push({ key: 'files', label: `Files ${s.fileCount}` })
       if (rel.length) tabs.push({ key: 'related', label: `Related ${rel.length}${clash.length ? ' ⚠' : ''}` })
@@ -1089,8 +1091,8 @@ export const register: Register = on => {
       const unfold = () => setUi(u => ({ ...u, open: s.id, tab: '' }))
       // the family's activity: a working subsession makes its main row pulse too
       return (
-        <Box key={`row-${s.id}`} flexDirection="row" gap={1} alignItems="center" paddingX={1}>
-          {under(`tb-${s.id}`, unfold)}
+        <Box key={`row-${s.id}`} flexDirection="row" gap={1} alignItems="center">
+          {under(`tb-${s.id}`, unfold, blankLine)}
           {(isWorking(s, now) || kidList.some(c => isWorking(c, now))) && Svg
             ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
             : isFresh(s) && Svg
@@ -1122,8 +1124,21 @@ export const register: Register = on => {
           <Text bold={color !== undefined} color={color} dimColor={color === undefined}>
             {title.replace(/^[^"]*/, m => m.toUpperCase())} · {list.length}
           </Text>
-          {list.slice(0, limit).map(s => (asRows ? row(s) : card(s, withState)))}
-          {list.length > limit && (
+          {/* quiet sessions: one soft card per section holding a line each (an
+              unfolded one opens as its own card in place) */}
+          {asRows
+            ? (
+              <Box flexDirection="column" borderStyle="round" borderColor={BORDER} paddingX={1}>
+                {list.slice(0, limit).map(s => row(s))}
+                {list.length > limit && (
+                  <Button key={`more-${key}`} plain onPress={() => setUi(u => ({ ...u, limits: { ...u.limits, [key]: limit + 10 } }))}>
+                    <Text dimColor>show {Math.min(10, list.length - limit)} more of {list.length - limit}</Text>
+                  </Button>
+                )}
+              </Box>
+            )
+            : list.slice(0, limit).map(s => card(s, withState))}
+          {!asRows && list.length > limit && (
             <Button key={`more-${key}`} plain onPress={() => setUi(u => ({ ...u, limits: { ...u.limits, [key]: limit + 10 } }))}>
               <Text dimColor>show {Math.min(10, list.length - limit)} more of {list.length - limit}</Text>
             </Button>
@@ -1303,7 +1318,7 @@ export const register: Register = on => {
           <Text bold>
             {topLevel(groups.need).length} need you · {topLevel(groups.waiting).length} waiting · {topLevel(groups.working).length} working · {topLevel(groups.good).length} good enough
             {dueToday > 0 && <Text color={ACCENT}> · {dueToday} due</Text>}
-            {asking > 0 && <Text color={ACCENT}> · ❓ {asking}</Text>}
+            {asking > 0 && <Text color={ACCENT}> · ? {asking}</Text>}
           </Text>
           <Box flexDirection="row" gap={1} alignItems="center">
             {ix.isLoading && Svg && <Svg source={PULSE} alt="indexing" width={12} height={12} isInteractive />}

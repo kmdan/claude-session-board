@@ -415,7 +415,7 @@ test('the watched session is listed once, under Here, and the header counts what
   expect(await ui.find({ key: 't-@Parser rewrite' })).toBeDefined()
   expect(await ui.find({ key: 't-Parser rewrite' })).toBeUndefined()
   // Parser rewrite is Here, so 0 need you; its child waits (its parent is not in that list)
-  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 1 waiting · 1 working · 0 good enough · ❓ 1')
+  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 1 waiting · 1 working · 0 good enough · ? 1')
   await ui.unmount()
 })
 
@@ -467,7 +467,7 @@ test('the board sorts sessions into needs-you, working and parked, on every surf
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('1 need you · 1 waiting · 1 working · 0 good enough · ❓ 1')
+    expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('1 need you · 1 waiting · 1 working · 0 good enough · ? 1')
     expect(await ui.find({ type: 'Text', text: /^NEEDS YOU · 1/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^Still waiting on you, 1-7 days · 1 ›/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^WORKING · 1/ })).toBeDefined()
@@ -493,7 +493,7 @@ test('marking a session good enough moves it, and the files overlap shows', asyn
 
   // good enough: out of Needs you, into the folded Good enough
   await ui.press({ key: 'g-Parser rewrite' })
-  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 1 waiting · 1 working · 1 good enough · ❓ 1')
+  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 1 waiting · 1 working · 1 good enough · ? 1')
   expect(await ui.find({ type: 'Text', text: /^Good enough · 1 ›/ })).toBeDefined()
   await ui.unmount()
 })
@@ -571,7 +571,7 @@ test('desktop: a card unfolds from anywhere on it: the blank layer under it, the
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   // the lines are no longer padded (it wrapped them in a proportional font)
-  const info = (await ui.find({ type: 'Text', text: /^❓ 2 questions · waiting/ })) as any
+  const info = (await ui.find({ type: 'Text', text: /^\? 2 questions · waiting/ })) as any
   expect(info?.text).not.toMatch(/⠀/)
   for (const line of ['tb', 't', 'tm', 'tn']) {
     await ui.press({ key: `${line}-Parser rewrite` })
@@ -594,7 +594,7 @@ test('a review page is answered on the card and the answers go to its session in
   await start($, on, store)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  expect(await ui.find({ type: 'Text', text: /❓ 2 questions/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /\? 2 questions/ })).toBeDefined()
   // with questions open, the card unfolds straight onto them
   await ui.press({ key: 't-Parser rewrite' })
   expect(await ui.find({ type: 'Text', text: /^Q1\. Keep the old API\?/ })).toBeDefined()
@@ -616,7 +616,7 @@ test('a review page is answered on the card and the answers go to its session in
   }])
 
   // answered: the badge goes, the tab says so, and the page is remembered
-  expect(await ui.find({ type: 'Text', text: /❓ 2 questions/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /\? 2 questions/ })).toBeUndefined()
   expect(await ui.find({ key: 'tab-Parser rewrite-questions' })).toMatchObject({ props: { } })
   expect(Object.keys(store.answered as object)).toEqual(['C:\\out\\questions.html'])
   expect(await ui.find({ type: 'Text', text: /✓ Parser: open questions · answered/ })).toBeDefined()

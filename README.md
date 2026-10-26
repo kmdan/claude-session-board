@@ -40,7 +40,7 @@ lot of sessions at once and lose track of them, ADHD brains included.
 - **Answer a session's questions on its card.** When a session writes an HTML
   review page with question blocks (`<div class="q" data-q="Q1" data-to="me">`,
   an `<h3>`, radio options, the recommended one marked `<span class="rec">`, a
-  `<textarea>`), the card shows **❓ N questions** and a **Questions** tab: pick
+  `<textarea>`), the card shows **? N questions** and a **Questions** tab: pick
   an option per question, add notes and free text, and **Send** puts the
   answers into that session as `Q1 [me]: … | note: …`. The page itself stays
   one click away for its movies, stills and pasted screenshots.
