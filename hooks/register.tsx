@@ -661,10 +661,11 @@ export const register: Register = on => {
         .sort((a, b) => Number(onTop(b)) - Number(onTop(a)) || at(b) - at(a))
     }
 
-    // chips: the projects with something this week, busiest first
+    // chips: every project with something this week, busiest first (a new project
+    // must show from its first session; the row wraps)
     const weekCount: Record<string, number> = {}
     for (const s of all) if (now - s.last < 7 * 86_400_000) weekCount[s.project] = (weekCount[s.project] ?? 0) + 1
-    const chips = Object.entries(weekCount).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([p]) => p)
+    const chips = Object.entries(weekCount).sort((a, b) => b[1] - a[1]).map(([p]) => p)
 
     const stateWord: Record<State, string> = {
       need: 'needs you', waiting: 'still waiting', working: 'working', today: 'today', week: 'earlier this week',
@@ -892,13 +893,14 @@ export const register: Register = on => {
     // them in the desktop's proportional font. So each card and row lays one blank
     // button under everything, stretched over the whole box (absolute, first
     // child: what is drawn after it paints over it and keeps its own clicks).
-    // Its label is the Braille blank (U+2800), many lines of it, clipped: drawn as
-    // nothing and never trimmed as whitespace is.
-    const BLANK = Array.from({ length: 12 }, () => '⠀'.repeat(100)).join('\n')
+    // Its text is the Braille blank (U+2800), drawn as nothing and never trimmed
+    // as whitespace is, with plain spaces between so it wraps to the card's width
+    // (long unbroken lines were cut with a visible "…"); the rows past the card are clipped.
+    const BLANK = Array.from({ length: 900 }, () => '⠀').join(' ')
     const under = (key: string, onPress: () => void) => (
       <Box position="absolute" top={0} left={0} right={0} bottom={0} overflow="hidden" flexDirection="row" alignItems="stretch">
         {/* no `label`: the desktop draws a label in place of the children (measured: "Unfold" showed) */}
-        <Button key={key} plain onPress={onPress}><Text>{BLANK}</Text></Button>
+        <Button key={key} plain onPress={onPress}><Text wrap="wrap">{BLANK}</Text></Button>
       </Box>
     )
 
