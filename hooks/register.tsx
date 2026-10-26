@@ -892,22 +892,12 @@ export const register: Register = on => {
       )
     }
 
-    // A button takes clicks only on its own text, and padding the lines out wrapped
-    // them in the desktop's proportional font. So each card and row lays one blank
-    // button under everything, stretched over the whole box (absolute, first
-    // child: what is drawn after it paints over it and keeps its own clicks).
-    // Its text is the Braille blank (U+2800), drawn as nothing and never trimmed
-    // as whitespace is. The desktop button never wraps and cuts what does not fit
-    // with a visible "…" (measured: wrapping text and 100-wide lines both showed
-    // it), so the lines stop at 60% of the pane: nothing is ever cut.
-    const blankLine = '⠀'.repeat(Math.max(10, Math.floor(((e.props.bodyColumns ?? 60) - 6) * 0.6)))
-    const BLANK_CARD = Array.from({ length: 6 }, () => blankLine).join('\n')
-    const under = (key: string, onPress: () => void, lines = BLANK_CARD) => (
-      <Box position="absolute" top={0} left={0} right={0} bottom={0} overflow="hidden" flexDirection="row" alignItems="stretch">
-        {/* no `label`: the desktop draws a label in place of the children (measured: "Unfold" showed) */}
-        <Button key={key} plain onPress={onPress}><Text>{lines}</Text></Button>
-      </Box>
-    )
+    // A button takes clicks only on its own box. Tried and dropped: padding the
+    // lines out (wrapped them in the desktop's proportional font) and a blank
+    // button laid under the card (the desktop paints an absolute box above the
+    // rest whatever the order: it swallowed the answers and Open). So a card's
+    // title, grey line and needs line are ONE button: one box, blank beside the
+    // shorter lines included.
 
     const card = (s: Sess, withState = false, depth = 0, path = s.id) => {
       const state = st(s)
@@ -979,12 +969,10 @@ export const register: Register = on => {
           )}
         </Box>
       )
-      // The blank button under the card (above) takes a click anywhere on it.
-      // A Client region per card did too, but measured 2x slower at 660
-      // sessions and pushed "open" off the edge; it was removed.
+      // A Client region per card took clicks anywhere, but measured 2x slower
+      // at 660 sessions and pushed "open" off the edge; it was removed.
       return (
         <Box key={`c-${path}`} flexDirection="column" borderStyle="round" borderColor={borderOf(s)} paddingX={1} marginBottom={depth === 0 ? 1 : 0}>
-          {under(`tb-${path}`, toggleCard)}
           {/* a subsession's main session, above its title: "Parent ›", one click up */}
           {parent && (
             <Box flexDirection="row" gap={1}>
@@ -997,22 +985,16 @@ export const register: Register = on => {
             </Box>
           )}
           <Box flexDirection="row" justifyContent="space-between" gap={1}>
-            <Box flexDirection="row" gap={1} flexShrink={1} alignItems="center">
-              {dots}
+            <Box flexDirection="row" gap={1} flexShrink={1}>
+              {dots.some(Boolean) && <Box flexDirection="column" paddingTop={0}>{dots}</Box>}
               <Button key={`t-${path}`} plain onPress={toggleCard}>
                 <Text bold>{s.title}</Text>
+                <Text dimColor>{'\n'}{meta.join(' · ')}</Text>
+                {showNeeds && <Text color={ACCENT}>{'\n'}→ {s.needs}</Text>}
               </Button>
             </Box>
             {corner}
           </Box>
-          <Button key={`tm-${path}`} plain onPress={toggleCard}>
-            <Text dimColor>{meta.join(' · ')}</Text>
-          </Button>
-          {showNeeds && (
-            <Button key={`tn-${path}`} plain onPress={toggleCard}>
-              <Text color={ACCENT}>→ {s.needs}</Text>
-            </Button>
-          )}
           {children(s, depth, path)}
           {isOpen && (
             <Box flexDirection="column" marginTop={1}>
@@ -1092,7 +1074,6 @@ export const register: Register = on => {
       // the family's activity: a working subsession makes its main row pulse too
       return (
         <Box key={`row-${s.id}`} flexDirection="row" gap={1} alignItems="center">
-          {under(`tb-${s.id}`, unfold, blankLine)}
           {(isWorking(s, now) || kidList.some(c => isWorking(c, now))) && Svg
             ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
             : isFresh(s) && Svg

@@ -239,8 +239,7 @@ test('a subsession that only reported back stays under its parent, which says so
     expect(await ui.find({ type: 'Text', text: /^NEEDS YOU · 1/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^TODAY, NOT TOUCHED BY YOU YET/ })).toBeUndefined()
     expect(await ui.find({ key: 'k-Parser rewrite>Parser edge cases' })).toBeDefined()
-    // the grey line unfolds the card too, not only the title
-    await ui.press({ key: 'tm-Parser rewrite' })
+    await ui.press({ key: 't-Parser rewrite' })
     expect(await ui.find({ key: 'o-Parser rewrite' })).toBeDefined()
     await ui.unmount()
   } finally {
@@ -567,18 +566,21 @@ test('the watched session is marked and pinned under Here; elsewhere there is no
   await ui.unmount()
 })
 
-test('desktop: a card unfolds from anywhere on it: the blank layer under it, the title, the grey line, the needs line', async ($, on) => {
+test('desktop: title, grey line and needs line are one button that unfolds the card; no layer over the answers', async ($, on) => {
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  // the lines are no longer padded (it wrapped them in a proportional font)
-  const info = (await ui.find({ type: 'Text', text: /^\? 2 questions · waiting/ })) as any
-  expect(info?.text).not.toMatch(/⠀/)
-  for (const line of ['tb', 't', 'tm', 'tn']) {
-    await ui.press({ key: `${line}-Parser rewrite` })
-    expect(await ui.find({ key: 'd-Parser rewrite' })).toBeDefined()
-    await ui.press({ key: `${line}-Parser rewrite` })
-    expect(await ui.find({ key: 'd-Parser rewrite' })).toBeUndefined()
-  }
+  const t = (await ui.find({ key: 't-Parser rewrite' })) as any
+  const said = JSON.stringify(t?.props?.children ?? t)
+  expect(said).toMatch(/\? 2 questions · waiting/)
+  expect(said).toMatch(/→ /)
+  // no blank layer anywhere: the desktop painted it over the answers and Open
+  expect(await ui.find({ key: 'tb-Parser rewrite' })).toBeUndefined()
+  await ui.press({ key: 't-Parser rewrite' })
+  expect(await ui.find({ key: 'd-Parser rewrite' })).toBeDefined()
+  // the answers on the unfolded card are their own buttons
+  expect(await ui.find({ key: 'qo-Parser rewrite-0-Q1-1' })).toBeDefined()
+  await ui.press({ key: 't-Parser rewrite' })
+  expect(await ui.find({ key: 'd-Parser rewrite' })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -654,6 +656,6 @@ test('an open card lists related sessions, and one opens on its own', async ($, 
   await ui.press({ key: 'tab-Parser rewrite-related' })
   await ui.press({ key: 'r-Parser rewrite-Parser edge cases' })
   expect(await ui.find({ type: 'Text', text: /back to the board/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^still waiting/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^\s*still waiting/ })).toBeDefined()
   await ui.unmount()
 })
