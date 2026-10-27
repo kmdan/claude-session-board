@@ -486,10 +486,9 @@ async function openSession($: $T, id: string): Promise<void> {
     background($, update($, openingAtom, o => (o === id ? '' : o)))
   })
   background($, markSeen($, id))
-  // leaving for a session: the board you come back to shows everything again
+  // leaving for a session: the search is cleared, the project chip stays (it is where you work)
   typedQuery = ''
-  background($, update($, uiAtom, u => (u.query === '' && u.project === '' && u.label === '' ? u
-    : { ...u, query: '', project: '', label: '', cleared: u.query === '' ? u.cleared : (u.cleared ?? 0) + 1 })))
+  background($, update($, uiAtom, u => (u.query === '' ? u : { ...u, query: '', cleared: (u.cleared ?? 0) + 1 })))
   await $.process.run(['cmd', '/c', 'start', '', `claude://claude.ai/epitaxy/${id}`])
 }
 
@@ -1195,8 +1194,9 @@ export const register: Register = on => {
 
     // The graph: the last two weeks' open sessions as dots, related ones close
     // together (the same evidence as a card's Related tab: same thread, same
-    // files, same rare words). A dot's colour is its project; its name says its
-    // state as the board does (brown working, green not answered yet). A click
+    // files, same rare words). A dot's colour is its project, or its state where
+    // that matters (brown working, green not answered yet, as the board's dots;
+    // drawn outside the button, which colours its own text). A click
     // opens the session's card; hovering shows its title in full.
     const graphView = () => {
       const cols = Math.max(30, (e.props as { bodyColumns?: number }).bodyColumns ?? 60) - 2
@@ -1229,10 +1229,11 @@ export const register: Register = on => {
               const nameColor = here && s.id === here.id ? HERE : working ? WORKING : isUnanswered(s) ? READY : undefined
               return (
                 <Box key={`gn-${s.id}`} position="absolute" top={sp.y} left={sp.x} flexDirection="row">
+                  {/* the dot beside the button: the desktop draws a button's text in its own colour */}
+                  <Text color={nameColor ?? projectColor(s.project)}>{nameColor ? '◉' : '●'}</Text>
                   <Button key={`g-${s.id}`} plain
                     onPress={() => setUi(u => ({ ...u, view: 'focus', focus: s.id, open: '', tab: '', from: 'graph' }))}>
-                    <Text color={projectColor(s.project)}>●</Text>
-                    {sp.label !== '' && <Text color={nameColor} dimColor={!nameColor && quiet} bold={isUnseen(s)}> {sp.label}</Text>}
+                    <Text color={nameColor} dimColor={!nameColor && quiet} bold={isUnseen(s)}> {sp.label || '·'}</Text>
                   </Button>
                   <Box position="absolute" top={1} left={sp.x > cols - 34 ? -30 : 0} display="none" hover={{ display: 'flex' }}
                     flexDirection="column" borderStyle="round" borderColor={BORDER} backgroundColor="#1e1e22" paddingX={1} width={32}>
@@ -1245,9 +1246,9 @@ export const register: Register = on => {
           </Box>
           <Box flexDirection="row" flexWrap="wrap" gap={2} marginTop={1}>
             <Text dimColor>● colour = project</Text>
-            <Text color={WORKING}>working</Text>
-            <Text color={READY}>not answered yet</Text>
-            <Text bold>bold = not looked at</Text>
+            <Text color={WORKING}>◉ working</Text>
+            <Text color={READY}>◉ not answered yet</Text>
+            <Text color={HERE}>◉ here</Text>
           </Box>
         </Box>
       )

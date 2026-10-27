@@ -461,8 +461,13 @@ test('the graph puts related sessions together, every dot on its own cell, in th
   expect(spots.length).toBe(10)
   expect(new Set(spots.map(p => `${p.x},${p.y}`)).size).toBe(10)
   expect(spots.every(p => p.x >= 0 && p.x < 60 && p.y >= 0 && p.y < 16)).toBe(true)
-  // a name never runs past the edge
+  // a name never runs past the edge, nor into the next dot on its row (with its gap)
   expect(spots.every(p => p.x + 1 + p.label.length + 1 <= 61)).toBe(true)
+  for (const p of spots) {
+    if (!p.label) continue
+    const end = p.x + 1 + p.label.length + 1 + Math.ceil(p.label.length / 4)
+    expect(spots.some(q => q.y === p.y && q.x > p.x && q.x < Math.min(end, 60))).toBe(false)
+  }
   const at = (i: number) => spots.find(p => p.i === i)!
   const dist = (a: number, b: number) => Math.hypot(at(a).x - at(b).x, (at(a).y - at(b).y) * 2)
   const mean = (pairs: [number, number][]) => pairs.reduce((s, [a, b]) => s + dist(a, b), 0) / pairs.length

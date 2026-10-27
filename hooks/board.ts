@@ -407,12 +407,17 @@ export function layoutGraph(
     if (!spot) continue
     const [x, y] = spot
     taken[y][x] = true
-    // the name: as much as fits before the next taken cell, a space either side
+    // the name: as much as fits before the next taken cell. The desktop draws in
+    // a proportional font where a name runs wider than its count of cells, so a
+    // name keeps a quarter of its length again as a gap before the next dot.
     const want = titles[i].length > labelMax ? `${titles[i].slice(0, labelMax - 1)}…` : titles[i]
+    const room = (len: number) => len + 2 + Math.ceil(len / 4)
     let w = 0
-    while (w < want.length + 1 && x + 1 + w < cols && !taken[y][x + 1 + w]) w++
-    const label = w >= 5 ? (want.length + 1 <= w ? want : `${want.slice(0, w - 2)}…`) : ''
-    for (let c = x + 1; c < x + 1 + Math.min(w, label.length + 1); c++) taken[y][c] = true
+    while (w < room(want.length) && x + 1 + w < cols && !taken[y][x + 1 + w]) w++
+    let len = want.length
+    while (len > 0 && room(len) > w) len--
+    const label = len >= 4 ? (len === want.length ? want : `${want.slice(0, len - 1)}…`) : ''
+    for (let c = x + 1; c < x + 1 + (label ? room(label.length) : 1) && c < cols; c++) taken[y][c] = true
     out.push({ i, x, y, label })
   }
   return out
