@@ -1195,13 +1195,41 @@ export const register: Register = on => {
       )
     }
 
+    // A subsession you are in is drawn as on the board: a small card inside its
+    // main session's frame, so it reads as a subsession at a glance.
+    const hereParent = here?.parent ? byId.get(here.parent) : undefined
+    const hereInParent = (p: Sess) => (
+      <Box key={`hp-${p.id}`} flexDirection="column" borderStyle="round" borderColor={borderOf(p)} paddingX={1} minWidth={0}>
+        <Box flexDirection="row" justifyContent="space-between" gap={1}>
+          <Box flexDirection="row" gap={1} flexShrink={1} alignItems="center">
+            {isWorking(p, now) && Svg
+              ? <Svg source={PULSE_WORKING} alt="working now" width={12} height={12} isInteractive />
+              : <Text color={isUnseen(p) ? READY : DOT[st(p)]}>●</Text>}
+            <Button key={`hpt-${p.id}`} plain onPress={() => setUi(u => ({ ...u, view: 'focus', focus: p.id, open: '', tab: '' }))}>
+              <Text bold>{p.title}</Text>
+            </Button>
+          </Box>
+          <Box flexDirection="row" gap={1} flexShrink={0}>
+            <Text color={projectColor(p.project)}>● {projectLabel(p.project)}</Text>
+            <Button key={`go-${p.id}`} plain onPress={() => background($, openSession($, p.id))}>
+              {opening === p.id ? <Text color={ACCENT}>opening…</Text> : <Text dimColor>open ↗</Text>}
+            </Button>
+          </Box>
+        </Box>
+        <Text dimColor>{stateWord[st(p)]} · {ago(now - p.last)}</Text>
+        <Box flexDirection="column" flexShrink={1} minWidth={0} overflow="hidden" marginLeft={1}>
+          {card(here!, true, 1, `@${here!.id}`)}
+        </Box>
+      </Box>
+    )
+
     const boardView = () => (
       <Box flexDirection="column">
         {all.length === 0 && <Text dimColor>{ix.isLoading ? 'Reading your sessions…' : ix.note}</Text>}
         {here && (
           <Box key="s-here" flexDirection="column" marginBottom={1}>
             <Text dimColor>HERE</Text>
-            {card(here, true, 0, `@${here.id}`)}
+            {hereParent ? hereInParent(hereParent) : card(here, true, 0, `@${here.id}`)}
           </Box>
         )}
         {/* cards where you act; one quiet line each for the rest */}
