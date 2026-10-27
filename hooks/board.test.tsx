@@ -492,6 +492,28 @@ test('the Graph tab shows the sessions as dots; a click opens one and back retur
   await ui.unmount()
 })
 
+test('‹ steps back to the session you were in before, › forward again from there', async ($, on) => {
+  const saved = INDEX.sessions.map(s => (s as any).touched)
+  // you were in Docs audit, before that in Old probe; now in Parser rewrite
+  ;(INDEX.sessions[2] as any).touched = NOW - 2 * 60_000
+  ;(INDEX.sessions[3] as any).touched = NOW - 9 * 60_000
+  for (const k of Object.keys(disk)) delete disk[k]
+  const store: Record<string, unknown> = {}
+  try {
+    await start($, on, store, 'cli-Parser rewrite')
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    expect(await ui.find({ key: 'trail-forward' })).toBeUndefined()
+    await ui.press({ key: 'trail-back' })
+    expect(ran.some(a => a.join(' ').endsWith('epitaxy/Docs audit'))).toBe(true)
+    expect(store.trail).toMatchObject({ list: ['Parser rewrite', 'Docs audit', 'Old probe'], pos: 1 })
+    await ui.unmount()
+  } finally {
+    INDEX.sessions.forEach((s, i) => { (s as any).touched = saved[i] })
+    // the snapshot this test wrote carries those times: the next test indexes afresh
+    for (const k of Object.keys(disk)) delete disk[k]
+  }
+})
+
 const BAND = {
   plugin: 'session-board', component: 'AbovePrompt', requestId: 'band', surface: 'desktop',
   props: { hasSurvey: false, isWorking: false, bodyColumns: 80, view: {} },

@@ -492,6 +492,29 @@ async function openSession($: $T, id: string): Promise<void> {
   await $.process.run(['cmd', '/c', 'start', '', `claude://claude.ai/epitaxy/${id}`])
 }
 
+/**
+ * ‹ and ›: back and forward through the sessions you were in, as a browser does.
+ * The trail is the app's own "last looked at" order, so a session you clicked in
+ * the app counts too. It is fixed when you first step back (stepping would
+ * otherwise reorder it) and kept in the store: each step lands in another
+ * session, whose own board reads it there. A trail you left (opened something
+ * else) or ten minutes old starts over.
+ */
+type Trail = { list: string[]; pos: number; at: number }
+
+async function trailOf($: $T, here: string | undefined): Promise<Trail | undefined> {
+  const t = (await $.store.get('trail')) as Trail | undefined
+  return t && Date.now() - t.at < 10 * 60_000 && t.list[t.pos] === here ? t : undefined
+}
+
+async function stepTrail($: $T, dir: 1 | -1, here: string | undefined, recent: string[]): Promise<void> {
+  const t = (await trailOf($, here)) ?? { list: here ? [here, ...recent.filter(id => id !== here)] : recent, pos: here ? 0 : -1, at: 0 }
+  const pos = t.pos + dir
+  if (pos < 0 || pos >= t.list.length) return
+  await $.store.set('trail', { list: t.list, pos, at: Date.now() })
+  await openSession($, t.list[pos])
+}
+
 async function openFile($: $T, path: string): Promise<void> {
   await $.process.run(['explorer.exe', path])
 }
@@ -1337,6 +1360,11 @@ export const register: Register = on => {
     const dueToday = allTodos.filter(r => !r.n.done && ['overdue', 'today'].includes(dueBucket(r.n.due, now))).length
     // sessions with unanswered question pages written in the last two weeks (older ones are history)
     const asking = all.filter(s => openPages(s).some(p => now - p.t < 14 * 86_400_000)).length
+    // the sessions you were in, last looked at first: what ‹ steps back through
+    const recentTrail = all.filter(s => !s.archived && (s.touched ?? 0) > 0 && (!here || s.id !== here.id))
+      .sort((a, b) => (b.touched ?? 0) - (a.touched ?? 0)).slice(0, 30).map(s => s.id)
+    const trail = await trailOf($, here?.id)
+    const backTo = trail ? trail.list[trail.pos + 1] : recentTrail[0]
     // finished since you last looked (the app's notifications you have not opened)
     const unseenCount = inProject.filter(s => (!here || s.id !== here.id) && isUnseen(s)).length
 
@@ -1449,6 +1477,17 @@ export const register: Register = on => {
             {unseenCount > 0 && <Text color={READY}> · {unseenCount} unseen</Text>}
           </Text>
           <Box flexDirection="row" gap={1} alignItems="center">
+            {/* back and forward through the sessions you were in */}
+            {backTo && (
+              <Button key="trail-back" plain onPress={() => background($, stepTrail($, 1, here?.id, recentTrail))}>
+                <Text dimColor>‹ {(byId.get(backTo ?? '')?.title ?? '').slice(0, 18)}</Text>
+              </Button>
+            )}
+            {trail && trail.pos > 0 && (
+              <Button key="trail-forward" plain onPress={() => background($, stepTrail($, -1, here?.id, recentTrail))}>
+                <Text dimColor>›</Text>
+              </Button>
+            )}
             {ix.isLoading && Svg && <Svg source={PULSE_WORKING} alt="indexing" width={12} height={12} isInteractive />}
             <Button key="refresh" plain onPress={() => background($, refresh($))}>
               <Text dimColor>{ix.isLoading ? 'indexing…' : 'refresh'}</Text>
