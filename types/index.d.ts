@@ -115,12 +115,15 @@ export type Ui = {
   shown: Record<string, boolean>
   /**
    * board = the sections; todos = every todo by due day; media = everything
-   * made, newest first; focus = one session and its relatives
+   * made, newest first; focus = one session and its relatives; graph = the
+   * recent sessions as dots, related ones close together
    */
-  view: 'board' | 'todos' | 'media' | 'focus'
+  view: 'board' | 'todos' | 'media' | 'focus' | 'graph'
   /** label filter of the Todos view; '' = all */
   label: string
   focus: string
+  /** the view a focus was opened from, so "back" returns there */
+  from?: 'graph'
   /** the one detail tab open on the open card, one at a time keeps an open card short:
    *  '' = automatic (Questions while some are open), 'none' = closed by hand */
   tab: '' | 'none' | 'questions' | 'media' | 'files' | 'related' | 'notes'

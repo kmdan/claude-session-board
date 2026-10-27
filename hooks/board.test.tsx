@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { dayOf, dueBucket, isOpenPage, pageSig, parseQuick, startOfDay, stateOf } from './board'
+import { dayOf, dueBucket, isOpenPage, layoutGraph, pageSig, parseQuick, startOfDay, stateOf } from './board'
 
 const PANE = {
   plugin: 'session-board',
@@ -449,6 +449,41 @@ test('a watched subsession is drawn inside its main session\'s frame, as on the 
   expect(await ui.find({ key: 'up-@Parser edge cases' })).toBeUndefined()
   await ui.press({ key: 'hpt-Parser rewrite' })
   expect(await ui.find({ type: 'Text', text: /back to the board/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the graph puts related sessions together, every dot on its own cell, in the frame, the same way twice', () => {
+  // two groups of five, related inside each group only
+  const titles = Array.from({ length: 10 }, (_, i) => `session number ${i}`)
+  const edges: [number, number, number][] = []
+  for (const g of [0, 5]) for (let a = g; a < g + 5; a++) for (let b = a + 1; b < g + 5; b++) edges.push([a, b, 6])
+  const spots = layoutGraph(titles, edges, 60, 16)
+  expect(spots.length).toBe(10)
+  expect(new Set(spots.map(p => `${p.x},${p.y}`)).size).toBe(10)
+  expect(spots.every(p => p.x >= 0 && p.x < 60 && p.y >= 0 && p.y < 16)).toBe(true)
+  // a name never runs past the edge
+  expect(spots.every(p => p.x + 1 + p.label.length + 1 <= 61)).toBe(true)
+  const at = (i: number) => spots.find(p => p.i === i)!
+  const dist = (a: number, b: number) => Math.hypot(at(a).x - at(b).x, (at(a).y - at(b).y) * 2)
+  const mean = (pairs: [number, number][]) => pairs.reduce((s, [a, b]) => s + dist(a, b), 0) / pairs.length
+  const inside: [number, number][] = edges.map(([a, b]) => [a, b])
+  const across: [number, number][] = [0, 1, 2, 3, 4].flatMap(a => [5, 6, 7, 8, 9].map(b => [a, b] as [number, number]))
+  expect(mean(inside)).toBeLessThan(mean(across) * 0.6)
+  expect(layoutGraph(titles, edges, 60, 16)).toEqual(spots)
+})
+
+test('the Graph tab shows the sessions as dots; a click opens one and back returns to the graph', async ($, on) => {
+  await start($, on)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'v-graph' })
+  expect(await ui.find({ key: 'g-Parser rewrite' })).toBeDefined()
+  // archived and month-quiet sessions are not on it
+  expect(await ui.find({ key: 'g-Archived exporter' })).toBeUndefined()
+  expect(await ui.find({ key: 'g-Old probe' })).toBeUndefined()
+  await ui.press({ key: 'g-Parser rewrite' })
+  expect(await ui.find({ type: 'Text', text: /back to the graph/ })).toBeDefined()
+  await ui.press({ key: 'back' })
+  expect(await ui.find({ key: 'g-Parser rewrite' })).toBeDefined()
   await ui.unmount()
 })
 

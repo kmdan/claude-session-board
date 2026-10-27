@@ -3,12 +3,12 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Answered, Drafts, FullText, Index, IndexMeta, Mark, Marks, Media, Moved, Note, Notes, QPage, Sess, TextHit, Ui } from '../types'
 import {
-  ago, baseName, byRecent, chatAnswers, composeAnswers, dueBucket, dueWord, isAsking, isOpenPage, isWorking, matches,
+  ago, baseName, byRecent, chatAnswers, composeAnswers, dueBucket, dueWord, isAsking, isOpenPage, isWorking, layoutGraph, matches,
   overlaps, pageSig,
   parseQuick, projectColor, projectLabel, relatedFinder,
   setMark, setProjectNames, stateOf,
 } from './board'
-import type { ProjectNames, Related, State } from './board'
+import type { GraphSpot, ProjectNames, Related, State } from './board'
 
 const PANE = 'session-board'
 const TITLE = 'Sessions'
@@ -104,6 +104,9 @@ let memo: {
   /** page title -> when it was last answered in any chat */
   chat: Map<string, number>
 } = { at: -1, count: -1, find: () => [], near: new Map(), chat: new Map() }
+
+// the graph view's layout, worked out once per index, project chip and pane width
+let graphMemo: { key: string; ids: string[]; spots: GraphSpot[] } = { key: '', ids: [], spots: [] }
 let selfCli: string | undefined
 
 async function glow($: $T, ids: string[]): Promise<void> {
@@ -1190,6 +1193,66 @@ export const register: Register = on => {
       )
     }
 
+    // The graph: the last two weeks' open sessions as dots, related ones close
+    // together (the same evidence as a card's Related tab: same thread, same
+    // files, same rare words). A dot's colour is its project; its name says its
+    // state as the board does (brown working, green not answered yet). A click
+    // opens the session's card; hovering shows its title in full.
+    const graphView = () => {
+      const cols = Math.max(30, (e.props as { bodyColumns?: number }).bodyColumns ?? 60) - 2
+      const pool = inProject
+        .filter(s => !s.archived && !['done', 'parked'].includes(st(s)) && now - s.last < 14 * 86_400_000)
+        .sort(byRecent).slice(0, 60)
+      const rows = Math.min(32, Math.max(12, Math.round(pool.length * 0.6)))
+      const key = `${ix.at}|${ui.project}|${cols}|${pool.map(s => s.id).join(',')}`
+      if (graphMemo.key !== key) {
+        const at = new Map(pool.map((s, i) => [s.id, i]))
+        const edges: [number, number, number][] = []
+        pool.forEach((s, i) => {
+          for (const r of memo.find(s, 8)) {
+            const j = at.get(r.s.id)
+            if (j !== undefined && j > i) edges.push([i, j, r.score])
+          }
+        })
+        graphMemo = { key, ids: pool.map(s => s.id), spots: layoutGraph(pool.map(s => s.title), edges, cols, rows) }
+      }
+      if (pool.length === 0) return <Text dimColor>No open sessions in the last two weeks{ui.project ? ' in this project' : ''}.</Text>
+      return (
+        <Box flexDirection="column">
+          <Text dimColor wrap="wrap">{pool.length} open sessions of the last two weeks. Close together = related: the same thread, files or words. Click one to open its card.</Text>
+          <Box key="graph" position="relative" height={rows} width={cols} marginTop={1}>
+            {graphMemo.spots.map(sp => {
+              const s = byId.get(graphMemo.ids[sp.i])
+              if (!s) return null
+              const working = isWorking(s, now)
+              const quiet = !working && !['need', 'waiting'].includes(st(s))
+              const nameColor = here && s.id === here.id ? HERE : working ? WORKING : isUnanswered(s) ? READY : undefined
+              return (
+                <Box key={`gn-${s.id}`} position="absolute" top={sp.y} left={sp.x} flexDirection="row">
+                  <Button key={`g-${s.id}`} plain
+                    onPress={() => setUi(u => ({ ...u, view: 'focus', focus: s.id, open: '', tab: '', from: 'graph' }))}>
+                    <Text color={projectColor(s.project)}>●</Text>
+                    {sp.label !== '' && <Text color={nameColor} dimColor={!nameColor && quiet} bold={isUnseen(s)}> {sp.label}</Text>}
+                  </Button>
+                  <Box position="absolute" top={1} left={sp.x > cols - 34 ? -30 : 0} display="none" hover={{ display: 'flex' }}
+                    flexDirection="column" borderStyle="round" borderColor={BORDER} backgroundColor="#1e1e22" paddingX={1} width={32}>
+                    <Text bold wrap="wrap">{s.title}</Text>
+                    <Text dimColor wrap="truncate-end">{projectLabel(s.project)} · {working ? 'working' : stateWord[st(s)]} · {ago(now - s.last)}</Text>
+                  </Box>
+                </Box>
+              )
+            })}
+          </Box>
+          <Box flexDirection="row" flexWrap="wrap" gap={2} marginTop={1}>
+            <Text dimColor>● colour = project</Text>
+            <Text color={WORKING}>working</Text>
+            <Text color={READY}>not answered yet</Text>
+            <Text bold>bold = not looked at</Text>
+          </Box>
+        </Box>
+      )
+    }
+
     // A subsession you are in is drawn as on the board: a small card inside its
     // main session's frame, so it reads as a subsession at a glance.
     const hereParent = here?.parent ? byId.get(here.parent) : undefined
@@ -1328,8 +1391,8 @@ export const register: Register = on => {
       if (!s) return <Text dimColor>That session is not in the index.</Text>
       return (
         <Box flexDirection="column">
-          <Button key="back" plain onPress={() => setUi(u => ({ ...u, view: 'board', focus: '' }))}>
-            <Text dimColor>← back to the board</Text>
+          <Button key="back" plain onPress={() => setUi(u => ({ ...u, view: u.from === 'graph' ? 'graph' : 'board', focus: '', from: undefined }))}>
+            <Text dimColor>← back to the {ui.from === 'graph' ? 'graph' : 'board'}</Text>
           </Button>
           {card(s, true)}
         </Box>
@@ -1432,6 +1495,7 @@ export const register: Register = on => {
           <Button key="v-todos" variant={ui.view === 'todos' ? 'primary' : 'secondary'}
             label={dueToday > 0 ? `Todos · ${dueToday}` : 'Todos'} onPress={() => setUi(u => ({ ...u, view: 'todos' }))} />
           <Button key="v-media" variant={ui.view === 'media' ? 'primary' : 'secondary'} label="Media" onPress={() => setUi(u => ({ ...u, view: 'media' }))} />
+          <Button key="v-graph" variant={ui.view === 'graph' ? 'primary' : 'secondary'} label="Graph" onPress={() => setUi(u => ({ ...u, view: 'graph' }))} />
           <Text dimColor>|</Text>
           <Button key="p-all" variant={ui.project === '' ? 'primary' : 'secondary'} label="All" onPress={() => setUi(u => ({ ...u, project: '' }))} />
           {chips.map(p => (
@@ -1441,6 +1505,7 @@ export const register: Register = on => {
         </Box>
 
         {ui.view === 'media' ? mediaView()
+          : ui.view === 'graph' ? graphView()
           : ui.view === 'todos' ? todosView()
           : ui.view === 'focus' ? focusView()
           : ui.query !== '' ? (

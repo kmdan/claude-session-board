@@ -313,3 +313,107 @@ export function dueWord(due: string, now: number): string {
   if (days < 7) return at.toLocaleDateString('en', { weekday: 'short' })
   return at.toLocaleDateString('en', { month: 'short', day: 'numeric' })
 }
+
+/** A dot of the graph view: where it sits (character cells) and the name shown beside it ('' = no room). */
+export type GraphSpot = { i: number; x: number; y: number; label: string }
+
+/**
+ * Places sessions so related ones sit together: every pair pushes apart, every
+ * relation (weight = its relatedness score) pulls its two ends together, the
+ * frame keeps them in (a force layout, Fruchterman-Reingold). It starts from a
+ * fixed spiral, so the same sessions land in the same places every time.
+ * Then each dot takes the nearest free cell of a `cols` x `rows` grid, and its
+ * name the room to its right, cut to fit or left out where a neighbour sits.
+ */
+export function layoutGraph(
+  titles: string[], edges: [number, number, number][], cols: number, rows: number, labelMax = 16,
+): GraphSpot[] {
+  const n = titles.length
+  if (n === 0) return []
+  // a cell is about twice as tall as wide: lay out in square units, rows count double
+  // the right edge keeps room for a short name
+  const W = Math.max(10, cols - 10)
+  const H = Math.max(4, rows - 1) * 2
+  const k = Math.sqrt((W * H) / n) * 0.75
+  const px = new Float64Array(n)
+  const py = new Float64Array(n)
+  for (let i = 0; i < n; i++) {
+    const r = Math.sqrt((i + 0.5) / n) * 0.45
+    const a = i * 2.39996
+    px[i] = W / 2 + r * W * Math.cos(a)
+    py[i] = H / 2 + r * H * Math.sin(a)
+  }
+  const maxW = Math.max(1, ...edges.map(e => e[2]))
+  const dx = new Float64Array(n)
+  const dy = new Float64Array(n)
+  let t = W / 8
+  for (let it = 0; it < 200; it++) {
+    dx.fill(0)
+    dy.fill(0)
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const ex = px[i] - px[j]
+        const ey = py[i] - py[j]
+        const d2 = Math.max(0.01, ex * ex + ey * ey)
+        const f = (k * k) / d2
+        dx[i] += ex * f; dy[i] += ey * f
+        dx[j] -= ex * f; dy[j] -= ey * f
+      }
+    }
+    for (const [a, b, w] of edges) {
+      const ex = px[a] - px[b]
+      const ey = py[a] - py[b]
+      const d = Math.max(0.1, Math.sqrt(ex * ex + ey * ey))
+      const f = (d / k) * (0.3 + w / maxW)
+      dx[a] -= ex * f; dy[a] -= ey * f
+      dx[b] += ex * f; dy[b] += ey * f
+    }
+    for (let i = 0; i < n; i++) {
+      // a pull to the middle keeps loose sessions (no relation) from piling on the walls
+      dx[i] += (W / 2 - px[i]) * 0.12 * k
+      dy[i] += (H / 2 - py[i]) * 0.12 * k
+      const d = Math.max(0.01, Math.sqrt(dx[i] * dx[i] + dy[i] * dy[i]))
+      const step = Math.min(d, t)
+      px[i] = Math.min(W, Math.max(0, px[i] + (dx[i] / d) * step))
+      py[i] = Math.min(H, Math.max(0, py[i] + (dy[i] / d) * step))
+    }
+    t = Math.max(0.05, t * 0.97)
+  }
+  // onto the grid: the best-connected first, so the hubs get their names
+  const degree = new Array(n).fill(0)
+  for (const [a, b] of edges) { degree[a] += 1; degree[b] += 1 }
+  const order = [...titles.keys()].sort((a, b) => degree[b] - degree[a] || a - b)
+  const taken = Array.from({ length: rows }, () => new Array<boolean>(cols).fill(false))
+  const free = (x: number, y: number, w: number) => {
+    for (let c = x; c < x + w; c++) if (c >= cols || taken[y][c]) return false
+    return true
+  }
+  const out: GraphSpot[] = []
+  for (const i of order) {
+    const gx = Math.round(px[i])
+    const gy = Math.round((py[i] / H) * (rows - 1))
+    // the nearest free cell, searched outward ring by ring
+    let spot: [number, number] | undefined
+    for (let r = 0; r < Math.max(cols, rows) && !spot; r++) {
+      for (let oy = -r; oy <= r && !spot; oy++) {
+        for (let ox = -r; ox <= r && !spot; ox++) {
+          if (Math.max(Math.abs(ox), Math.abs(oy)) !== r) continue
+          const x = gx + ox
+          const y = gy + oy
+          if (y >= 0 && y < rows && x >= 0 && x < cols && free(x, y, 1)) spot = [x, y]
+        }
+      }
+    }
+    if (!spot) continue
+    const [x, y] = spot
+    taken[y][x] = true
+    // the name: as much as fits before the next taken cell, a space either side
+    const want = titles[i].length > labelMax ? `${titles[i].slice(0, labelMax - 1)}…` : titles[i]
+    let w = 0
+    while (w < want.length + 1 && x + 1 + w < cols && !taken[y][x + 1 + w]) w++
+    const label = w >= 5 ? (want.length + 1 <= w ? want : `${want.slice(0, w - 2)}…`) : ''
+    for (let c = x + 1; c < x + 1 + Math.min(w, label.length + 1); c++) taken[y][c] = true
+    out.push({ i, x, y, label })
+  }
+  return out
+}
