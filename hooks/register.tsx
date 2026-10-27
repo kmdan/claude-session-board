@@ -18,21 +18,20 @@ const SHOWN = 5
 // what waits on you, grey for the rest, the project colour only on a small dot.
 const ACCENT = '#c9a26b'
 const BORDER = '#3a3a40'
-// A session's dot, as a traffic light: brown pulse while it works, green pulse
+// A session's dot, as a traffic light: brown pulse while it works, still green
 // when it finished and waits for you (not seen yet), grey once you have seen it.
+// Only work pulses: a pulse reads as "still running, still spending".
 const WORKING = '#b08455'
 const READY = '#5fae6e'
 const SEEN = '#8a8a86'
-// The pulses are SVGs animating themselves (SMIL), so nothing redraws the board
+// The pulse is an SVG animating itself (SMIL), so nothing redraws the board
 // on a timer. Drawn where the surface has Svg (desktop, vscode, mobile).
-const PULSE = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12">'
-  + `<circle cx="6" cy="6" r="4" fill="${READY}">`
-  + '<animate attributeName="opacity" values="1;0.2;1" dur="1.2s" repeatCount="indefinite"/>'
-  + '<animate attributeName="r" values="4;2.6;4" dur="1.2s" repeatCount="indefinite"/>'
+// A session working right now (and the board indexing).
+const PULSE_WORKING = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12">'
+  + `<circle cx="6" cy="6" r="4" fill="${WORKING}">`
+  + '<animate attributeName="opacity" values="1;0.2;1" dur="2s" repeatCount="indefinite"/>'
+  + '<animate attributeName="r" values="4;2.6;4" dur="2s" repeatCount="indefinite"/>'
   + '</circle></svg>'
-
-// a session working right now (and the board indexing): brown and slower
-const PULSE_WORKING = PULSE.replace(READY, WORKING).replaceAll('1.2s', '2s')
 
 // The session this board is drawn in (the one being watched) gets the accent;
 // sessions related to it get a border the stronger the relation, in three steps.
@@ -911,9 +910,7 @@ export const register: Register = on => {
                 {/* drawn beside the button: a button holds only text */}
                 {working && Svg
                   ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
-                  : isFresh(c) && Svg
-                    ? <Svg source={PULSE} alt="just asked for you" width={10} height={10} isInteractive />
-                    : reported
+                  : reported
                       ? <Text dimColor>↩</Text>
                       : <Text color={isUnseen(c) ? READY : DOT[cs]}>●</Text>}
                 <Button key={`k-${cPath}`} plain onPress={() => setUi(u => ({ ...u, open: cPath, tab: '' }))}>
@@ -989,17 +986,13 @@ export const register: Register = on => {
       }
       const unseen = isUnseen(s)
       const showNeeds = (isOpen || state === 'need') && s.needs !== ''
-      // one dot, a traffic light: brown pulse working, green pulse done and not seen, then still
+      // one dot, a traffic light: brown pulse working, still green done and not seen, then grey
       const dots = [
         isWorking(s, now)
           ? (Svg
             ? <Svg key={`dw-${path}`} source={PULSE_WORKING} alt="working now" width={12} height={12} isInteractive />
             : <Text key={`dw-${path}`} color={WORKING}>●</Text>)
-          : isFresh(s)
-            ? (Svg
-              ? <Svg key={`df-${path}`} source={PULSE} alt="just asked for you" width={12} height={12} isInteractive />
-              : <Text key={`df-${path}`} color={READY}>●</Text>)
-            : <Text key={`ds-${path}`} color={unseen ? READY : DOT[state]}>●</Text>,
+          : <Text key={`ds-${path}`} color={unseen ? READY : DOT[state]}>●</Text>,
       ]
       const corner = (
         <Box flexDirection="row" gap={1} flexShrink={0}>
@@ -1130,9 +1123,7 @@ export const register: Register = on => {
         <Box key={`row-${s.id}`} flexDirection="row" gap={1} alignItems="center">
           {(isWorking(s, now) || kidList.some(c => isWorking(c, now))) && Svg
             ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
-            : isFresh(s) && Svg
-              ? <Svg source={PULSE} alt="just asked for you" width={10} height={10} isInteractive />
-              : <Text color={isUnseen(s) ? READY : DOT[cs]}>●</Text>}
+            : <Text color={isUnseen(s) ? READY : DOT[cs]}>●</Text>}
           <Box flexGrow={1} flexShrink={1}>
             <Button key={`t-${s.id}`} plain onPress={unfold}>
               <Text bold={isUnseen(s)}>{s.title}</Text>

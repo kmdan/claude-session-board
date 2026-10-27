@@ -16,8 +16,10 @@ lot of sessions at once and lose track of them, ADHD brains included.
   lot** for anything a month quiet or archived.
 - It checks the app's own session records every 20 seconds, so a session that
   just finished moves to its place within seconds. A session whose transcript
-  was written in the last minute counts as **Working** and has a green pulse:
+  was written in the last minute counts as **Working** and has a brown pulse:
   a turn in progress writes every few seconds, one waiting for you writes nothing.
+  Only work pulses. A session that finished since you last looked is **unseen**:
+  a still green dot and a green border, until you open it here or in the app.
 - Every card: its status line, what it needs from you, and one tab at a time
   for its **media** (movies, images, HTML pages and published artifacts it made),
   **files** it wrote, **related** sessions and your **notes**.

@@ -246,7 +246,7 @@ test('a subsession that only reported back stays under its parent, which says so
   }
 })
 
-test('a session that just asked for you pulses until you open its card', async ($, on) => {
+test('a session that just asked for you has a still green dot, not a pulse; only work pulses', async ($, on) => {
   const saved = INDEX.sessions[0].last
   // Parser rewrite asks right now: later than any "seen" an earlier test left (opening it counts as seen)
   INDEX.sessions[0].last = Date.now()
@@ -255,12 +255,14 @@ test('a session that just asked for you pulses until you open its card', async (
     await start($, on)
     // desktop: the pulses are SVGs
     const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-    // the first pulse on the board: Needs you comes before Working, so it is the amber one while it pulses
+    // Needs you comes before Working: were the waiting card to pulse, its pulse would be first
     const firstPulse = async () => ((await ui.find({ type: 'Svg' } as any)) as any)?.props?.alt
-    expect(await firstPulse()).toBe('just asked for you')
-    await ui.press({ key: 't-Parser rewrite' })
-    // seen: the amber pulse stops; the green one of the working session stays
     expect(await firstPulse()).toBe('working now')
+    const dot = async () => (await ui.find({ type: 'Text', text: '●', props: { color: '#5fae6e' } } as any))?.props?.color
+    expect(await dot()).toBe('#5fae6e')
+    await ui.press({ key: 't-Parser rewrite' })
+    // seen: the green goes
+    expect(await dot()).not.toBe('#5fae6e')
     await ui.unmount()
   } finally {
     INDEX.sessions[0].last = saved
