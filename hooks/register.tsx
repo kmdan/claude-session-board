@@ -647,6 +647,8 @@ export const register: Register = on => {
       const g = moved[s.id] ?? 0
       if (g > 0) return GLOW[g]
       if (here && s.id === here.id) return HERE
+      // finished since you last looked: the whole card says so, not only its dot
+      if (isUnseen(s)) return READY
       const score = nearness.get(s.id) ?? 0
       return RELATED_BORDER.find(([min]) => score >= min)?.[1] ?? BORDER
     }

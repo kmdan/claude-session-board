@@ -683,9 +683,12 @@ test('a session that finished since you last looked says unseen, until you open 
   // Parser rewrite finished an hour ago and was never looked at; its subsession asks too
   expect(await ui.find({ type: 'Text', text: /unseen · / })).toBeDefined()
   expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toMatch(/· 2 unseen$/)
+  // its whole card is outlined green, not only its dot
+  expect((await ui.find({ key: 'c-Parser rewrite' }))?.props?.borderColor).toBe('#5fae6e')
   await ui.press({ key: 't-Parser rewrite' })
   await ui.press({ key: 't-Parser rewrite' })
   expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toMatch(/· 1 unseen$/)
+  expect((await ui.find({ key: 'c-Parser rewrite' }))?.props?.borderColor).not.toBe('#5fae6e')
   await ui.unmount()
 })
 
