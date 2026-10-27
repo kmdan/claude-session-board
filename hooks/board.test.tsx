@@ -427,7 +427,7 @@ test('the watched session is listed once, under Here, and the header counts what
   expect(await ui.find({ key: 't-@Parser rewrite' })).toBeDefined()
   expect(await ui.find({ key: 't-Parser rewrite' })).toBeUndefined()
   // Parser rewrite is Here, so 0 need you; its waiting child is on the Here card's rail, not counted again
-  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 0 waiting · 1 working · 0 good enough · ? 1')
+  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 0 waiting · 1 working · 0 good enough · ? 1 · 1 unseen')
   expect(await ui.find({ key: 't-@Parser rewrite>Parser edge cases' })).toBeDefined()
   await ui.unmount()
 })
@@ -480,7 +480,7 @@ test('the board sorts sessions into needs-you, working and parked, on every surf
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('1 need you · 1 waiting · 1 working · 0 good enough · ? 1')
+    expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('1 need you · 1 waiting · 1 working · 0 good enough · ? 1 · 2 unseen')
     expect(await ui.find({ type: 'Text', text: /^NEEDS YOU · 1/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^Still waiting on you, 1-7 days · 1 ›/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^WORKING · 1/ })).toBeDefined()
@@ -506,7 +506,7 @@ test('marking a session good enough moves it, and the files overlap shows', asyn
 
   // good enough: out of Needs you, into the folded Good enough
   await ui.press({ key: 'g-Parser rewrite' })
-  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 1 waiting · 1 working · 1 good enough · ? 1')
+  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 1 waiting · 1 working · 1 good enough · ? 1 · 1 unseen')
   expect(await ui.find({ type: 'Text', text: /^Good enough · 1 ›/ })).toBeDefined()
   await ui.unmount()
 })
@@ -669,6 +669,18 @@ test('an open card lists related sessions, and one opens on its own', async ($, 
   await ui.press({ key: 'r-Parser rewrite-Parser edge cases' })
   expect(await ui.find({ type: 'Text', text: /back to the board/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^\s*still waiting/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a session that finished since you last looked says unseen, until you open it', async ($, on) => {
+  await start($, on)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // Parser rewrite finished an hour ago and was never looked at; its subsession asks too
+  expect(await ui.find({ type: 'Text', text: /unseen · / })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toMatch(/· 2 unseen$/)
+  await ui.press({ key: 't-Parser rewrite' })
+  await ui.press({ key: 't-Parser rewrite' })
+  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toMatch(/· 1 unseen$/)
   await ui.unmount()
 })
 

@@ -605,7 +605,14 @@ export const register: Register = on => {
     // Just finished a turn that needs you (the app notifies on it) and not seen since: it pulses amber.
     // A subsession only when it asks YOU (blocked / ready for review): one that merely reported
     // back sends its report to its main session, which is where the attention goes.
-    const isFresh = (s: Sess) => !isWorking(s, now) && now - s.last < 30 * 60_000 && (seen[s.id] ?? 0) < s.last
+    // Unseen: it finished a turn after you last looked at it -- in the app (its own
+    // focus time, which a click on the Windows notification sets too) or on this
+    // board. What the app's notification announced and you have not opened yet.
+    // A subsession only when it asks you; a closed or parked one never.
+    const isUnseen = (s: Sess) => !isWorking(s, now) && !s.archived && now - s.last < 7 * 86_400_000
+      && Math.max(s.touched ?? 0, seen[s.id] ?? 0) < s.last
+      && (isAsking(s) || !s.parent) && !['done', 'parked', 'good'].includes(stateOf(s, marks, now))
+    const isFresh = (s: Sess) => isUnseen(s) && now - s.last < 30 * 60_000
       && (isAsking(s) || (!s.parent && stateOf(s, marks, now) === 'need'))
     // a subsession that finished a turn in the last half hour without asking you: it reported to its parent
     const hasReported = (s: Sess) => !!s.parent && !isWorking(s, now) && !isAsking(s) && now - s.last < 30 * 60_000
@@ -902,7 +909,7 @@ export const register: Register = on => {
                     ? <Svg source={PULSE} alt="just asked for you" width={10} height={10} isInteractive />
                     : reported
                       ? <Text dimColor>↩</Text>
-                      : <Text color={DOT[cs]}>●</Text>}
+                      : <Text color={isUnseen(c) ? READY : DOT[cs]}>●</Text>}
                 <Button key={`k-${cPath}`} plain onPress={() => setUi(u => ({ ...u, open: cPath, tab: '' }))}>
                   <Text dimColor={quiet}> {c.title}</Text>
                   <Text dimColor={!asks} color={asks ? ACCENT : undefined}> {word} · {ago(now - c.last)}{grand ? ` · +${grand}` : ''}</Text>
@@ -972,8 +979,9 @@ export const register: Register = on => {
         if (isOpening && isFresh(s)) keptOnTop.add(s.id)
         else keptOnTop.delete(s.id)
         setUi(u => ({ ...u, open: u.open === path ? '' : path, tab: '' }))
-        if (isFresh(s)) background($, markSeen($, s.id))
+        if (isUnseen(s)) background($, markSeen($, s.id))
       }
+      const unseen = isUnseen(s)
       const showNeeds = (isOpen || state === 'need') && s.needs !== ''
       // one dot, a traffic light: brown pulse working, green pulse done and not seen, then still
       const dots = [
@@ -985,7 +993,7 @@ export const register: Register = on => {
             ? (Svg
               ? <Svg key={`df-${path}`} source={PULSE} alt="just asked for you" width={12} height={12} isInteractive />
               : <Text key={`df-${path}`} color={READY}>●</Text>)
-            : <Text key={`ds-${path}`} color={DOT[state]}>●</Text>,
+            : <Text key={`ds-${path}`} color={unseen ? READY : DOT[state]}>●</Text>,
       ]
       const corner = (
         <Box flexDirection="row" gap={1} flexShrink={0}>
@@ -1026,6 +1034,7 @@ export const register: Register = on => {
             {corner}
           </Box>
           <Button key={`tm-${path}`} plain onPress={toggleCard}>
+            {unseen && <Text color={READY}>unseen · </Text>}
             {askCount > 0 && <Text color={ACCENT}>? {askCount}</Text>}
             <Text dimColor>{askCount ? ` question${askCount > 1 ? 's' : ''} · ` : ''}{meta.join(' · ')}</Text>
           </Button>
@@ -1117,10 +1126,10 @@ export const register: Register = on => {
             ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
             : isFresh(s) && Svg
               ? <Svg source={PULSE} alt="just asked for you" width={10} height={10} isInteractive />
-              : <Text color={DOT[cs]}>●</Text>}
+              : <Text color={isUnseen(s) ? READY : DOT[cs]}>●</Text>}
           <Box flexGrow={1} flexShrink={1}>
             <Button key={`t-${s.id}`} plain onPress={unfold}>
-              <Text>{s.title}</Text>
+              <Text bold={isUnseen(s)}>{s.title}</Text>
               {kids > 0 && <Text dimColor>  +{kids}{reports ? ` ↩${reports}` : ''}</Text>}
             </Button>
           </Box>
@@ -1235,6 +1244,8 @@ export const register: Register = on => {
     const dueToday = allTodos.filter(r => !r.n.done && ['overdue', 'today'].includes(dueBucket(r.n.due, now))).length
     // sessions with unanswered question pages written in the last two weeks (older ones are history)
     const asking = all.filter(s => openPages(s).some(p => now - p.t < 14 * 86_400_000)).length
+    // finished since you last looked (the app's notifications you have not opened)
+    const unseenCount = inProject.filter(s => (!here || s.id !== here.id) && isUnseen(s)).length
 
     const todosView = () => {
       const shown = allTodos.filter(r =>
@@ -1342,6 +1353,7 @@ export const register: Register = on => {
             {topLevel(groups.need).length} need you · {topLevel(groups.waiting).length} waiting · {topLevel(groups.working).length} working · {topLevel(groups.good).length} good enough
             {dueToday > 0 && <Text color={ACCENT}> · {dueToday} due</Text>}
             {asking > 0 && <Text color={ACCENT}> · ? {asking}</Text>}
+            {unseenCount > 0 && <Text color={READY}> · {unseenCount} unseen</Text>}
           </Text>
           <Box flexDirection="row" gap={1} alignItems="center">
             {ix.isLoading && Svg && <Svg source={PULSE_WORKING} alt="indexing" width={12} height={12} isInteractive />}
