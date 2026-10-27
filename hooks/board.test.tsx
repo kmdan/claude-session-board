@@ -520,6 +520,11 @@ test('search finds an archived session by a file it wrote and by its commit', as
   expect(await ui.find({ type: 'Text', text: /^FOUND FOR "csvexporter" · 1/ })).toBeDefined()
   await ui.input({ key: 'q', text: 'a1b2c3d' })
   expect(await ui.find({ type: 'Text', text: /\(1\)/ })).toBeDefined()
+  // opening the found session leaves for it: the board you come back to has no search on
+  await ui.press({ key: 'go-Archived exporter' })
+  expect(await ui.find({ type: 'Text', text: /^FOUND FOR/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^NEEDS YOU/ })).toBeDefined()
+  expect(await ui.find({ key: 'q-clear' })).toBeUndefined()
   await ui.unmount()
 })
 

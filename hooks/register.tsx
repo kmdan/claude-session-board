@@ -484,6 +484,10 @@ async function openSession($: $T, id: string): Promise<void> {
     background($, update($, openingAtom, o => (o === id ? '' : o)))
   })
   background($, markSeen($, id))
+  // leaving for a session: the board you come back to shows everything again
+  typedQuery = ''
+  background($, update($, uiAtom, u => (u.query === '' && u.project === '' && u.label === '' ? u
+    : { ...u, query: '', project: '', label: '', cleared: u.query === '' ? u.cleared : (u.cleared ?? 0) + 1 })))
   await $.process.run(['cmd', '/c', 'start', '', `claude://claude.ai/epitaxy/${id}`])
 }
 
