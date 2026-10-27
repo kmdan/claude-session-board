@@ -347,6 +347,8 @@ def meta_fields(m):
         "last": m.get("lastActivityAt") or 0,
         # when YOU last touched it: looked at it, or wrote in it
         "touched": max(m.get("lastFocusedAt") or 0, m.get("latestUserFrameAt") or 0),
+        # when you last wrote in it: looking at a finished session does not answer it
+        "replied": m.get("latestUserFrameAt") or 0,
         "appStatus": pts.get("status_category"),
         "detail": pts.get("status_detail") or wrap.get("description") or "",
         "needs": pts.get("needs_action") or "",

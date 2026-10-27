@@ -612,9 +612,13 @@ export const register: Register = on => {
     // focus time, which a click on the Windows notification sets too) or on this
     // board. What the app's notification announced and you have not opened yet.
     // A subsession only when it asks you; a closed or parked one never.
-    const isUnseen = (s: Sess) => !isWorking(s, now) && !s.archived && now - s.last < 7 * 86_400_000
-      && Math.max(s.touched ?? 0, seen[s.id] ?? 0) < s.last
+    // Two marks, two questions: the green BORDER is "not looked at yet" (goes when
+    // you look), the green DOT is "finished and not answered yet" (stays until you
+    // write in it, or mark it).
+    const finishedForYou = (s: Sess) => !isWorking(s, now) && !s.archived && now - s.last < 7 * 86_400_000
       && (isAsking(s) || !s.parent) && !['done', 'parked', 'good'].includes(stateOf(s, marks, now))
+    const isUnseen = (s: Sess) => finishedForYou(s) && Math.max(s.touched ?? 0, seen[s.id] ?? 0) < s.last
+    const isUnanswered = (s: Sess) => finishedForYou(s) && (s.replied ?? s.touched ?? 0) < s.last
     const isFresh = (s: Sess) => isUnseen(s) && now - s.last < 30 * 60_000
       && (isAsking(s) || (!s.parent && stateOf(s, marks, now) === 'need'))
     // a subsession that finished a turn in the last half hour without asking you: it reported to its parent
@@ -912,7 +916,7 @@ export const register: Register = on => {
                   ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
                   : reported
                       ? <Text dimColor>↩</Text>
-                      : <Text color={isUnseen(c) ? READY : DOT[cs]}>●</Text>}
+                      : <Text color={isUnanswered(c) ? READY : DOT[cs]}>●</Text>}
                 <Button key={`k-${cPath}`} plain onPress={() => setUi(u => ({ ...u, open: cPath, tab: '' }))}>
                   <Text dimColor={quiet}> {c.title}</Text>
                   <Text dimColor={!asks} color={asks ? ACCENT : undefined}> {word} · {ago(now - c.last)}{grand ? ` · +${grand}` : ''}</Text>
@@ -992,7 +996,7 @@ export const register: Register = on => {
           ? (Svg
             ? <Svg key={`dw-${path}`} source={PULSE_WORKING} alt="working now" width={12} height={12} isInteractive />
             : <Text key={`dw-${path}`} color={WORKING}>●</Text>)
-          : <Text key={`ds-${path}`} color={unseen ? READY : DOT[state]}>●</Text>,
+          : <Text key={`ds-${path}`} color={isUnanswered(s) ? READY : DOT[state]}>●</Text>,
       ]
       const corner = (
         <Box flexDirection="row" gap={1} flexShrink={0}>
@@ -1123,7 +1127,7 @@ export const register: Register = on => {
         <Box key={`row-${s.id}`} flexDirection="row" gap={1} alignItems="center">
           {(isWorking(s, now) || kidList.some(c => isWorking(c, now))) && Svg
             ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
-            : <Text color={isUnseen(s) ? READY : DOT[cs]}>●</Text>}
+            : <Text color={isUnanswered(s) ? READY : DOT[cs]}>●</Text>}
           <Box flexGrow={1} flexShrink={1}>
             <Button key={`t-${s.id}`} plain onPress={unfold}>
               <Text bold={isUnseen(s)}>{s.title}</Text>
@@ -1195,7 +1199,7 @@ export const register: Register = on => {
           <Box flexDirection="row" gap={1} flexShrink={1} alignItems="center">
             {isWorking(p, now) && Svg
               ? <Svg source={PULSE_WORKING} alt="working now" width={12} height={12} isInteractive />
-              : <Text color={isUnseen(p) ? READY : DOT[st(p)]}>●</Text>}
+              : <Text color={isUnanswered(p) ? READY : DOT[st(p)]}>●</Text>}
             <Button key={`hpt-${p.id}`} plain onPress={() => setUi(u => ({ ...u, view: 'focus', focus: p.id, open: '', tab: '' }))}>
               <Text bold>{p.title}</Text>
             </Button>

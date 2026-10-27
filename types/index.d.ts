@@ -41,6 +41,8 @@ export type Sess = {
   last: number
   /** when YOU last touched it (looked at it or wrote in it); 0 = never recorded */
   touched: number
+  /** when you last wrote in it; looking at it does not count (missing in older indexes) */
+  replied?: number
   /** when its transcript was last written: a working session keeps writing, a waiting one stops */
   written: number
   /** the app's own post-turn verdict: completed | blocked | review_ready | null */

@@ -260,9 +260,13 @@ test('a session that just asked for you has a still green dot, not a pulse; only
     expect(await firstPulse()).toBe('working now')
     const dot = async () => (await ui.find({ type: 'Text', text: '●', props: { color: '#5fae6e' } } as any))?.props?.color
     expect(await dot()).toBe('#5fae6e')
+    const border = async () => (await ui.find({ key: 'c-Parser rewrite' }))?.props?.borderColor
+    expect(await border()).toBe('#5fae6e')
     await ui.press({ key: 't-Parser rewrite' })
-    // seen: the green goes
-    expect(await dot()).not.toBe('#5fae6e')
+    await ui.press({ key: 't-Parser rewrite' })
+    // looked at: the green border goes; not answered yet: the green dot stays
+    expect(await border()).not.toBe('#5fae6e')
+    expect(await dot()).toBe('#5fae6e')
     await ui.unmount()
   } finally {
     INDEX.sessions[0].last = saved
