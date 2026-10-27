@@ -441,14 +441,12 @@ test('the watched session is listed once, under Here, and the header counts what
 test('a watched subsession is drawn inside its main session\'s frame, as on the board', async ($, on) => {
   await start($, on, {}, 'cli-Parser edge cases')
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  // the main session frames it: its title is a button up, its own open ↗ beside it
-  expect(await ui.find({ key: 'hp-Parser rewrite' })).toBeDefined()
-  expect(await ui.find({ key: 'hpt-Parser rewrite' })).toBeDefined()
-  expect(await ui.find({ key: 't-@Parser edge cases' })).toBeDefined()
+  // the main session's whole card, with your subsession as a card on its rail
+  expect(await ui.find({ key: 't-@Parser rewrite' })).toBeDefined()
+  expect(await ui.find({ key: 't-@Parser rewrite>Parser edge cases' })).toBeDefined()
+  expect(await ui.find({ key: 'go-@Parser rewrite' })).toBeDefined()
   // nested, so no "Parent ›" line on the card itself
-  expect(await ui.find({ key: 'up-@Parser edge cases' })).toBeUndefined()
-  await ui.press({ key: 'hpt-Parser rewrite' })
-  expect(await ui.find({ type: 'Text', text: /back to the board/ })).toBeDefined()
+  expect(await ui.find({ key: 'up-@Parser rewrite>Parser edge cases' })).toBeUndefined()
   await ui.unmount()
 })
 

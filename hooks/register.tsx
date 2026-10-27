@@ -903,17 +903,21 @@ export const register: Register = on => {
       const allShown = ui.shown[`kids-${path}`]
       const isQuiet = (c: Sess) => ['parked', 'done'].includes(st(c)) && !isWorking(c, now)
       const lively = kids.filter(c => !isQuiet(c))
-      const asking = lively.filter(asksYou)
-      const rest = lively.filter(c => !asksYou(c))
-      const visible = allShown ? [...asking, ...rest, ...kids.filter(isQuiet)] : [...asking, ...rest.slice(0, 4)]
+      // under Here, the subsession you are in is a card on its main session's rail, first
+      const isHereKid = (c: Sess) => path.startsWith('@') && !!here && c.id === here.id
+      const asCard = (c: Sess) => asksYou(c) || isHereKid(c)
+      const asking = [...kids.filter(isHereKid), ...lively.filter(c => asksYou(c) && !isHereKid(c))]
+      const rest = lively.filter(c => !asCard(c))
+      const quiet = kids.filter(c => isQuiet(c) && !isHereKid(c))
+      const visible = allShown ? [...asking, ...rest, ...quiet] : [...asking, ...rest.slice(0, 4)]
       const folded = kids.length - visible.length
-      const quietCount = kids.filter(isQuiet).length
+      const quietCount = quiet.length
       return (
         <Box flexDirection="column" marginTop={1} marginLeft={1}>
           {visible.map((c, i) => {
             const cPath = `${path}>${c.id}`
             const isLast = i === visible.length - 1 && folded === 0
-            if (ui.open === cPath || asksYou(c)) {
+            if (ui.open === cPath || asCard(c)) {
               return (
                 // indented, no connector (beside a card it floated mid-height); it may
                 // shrink, so a long needs line is cut with "…" and never pushes past the edge
@@ -1277,33 +1281,10 @@ export const register: Register = on => {
       )
     }
 
-    // A subsession you are in is drawn as on the board: a small card inside its
-    // main session's frame, so it reads as a subsession at a glance.
+    // A subsession you are in is drawn as the board draws its family: its main
+    // session's whole card, with the rail of siblings (asking, working, the
+    // rest) and your subsession as a card on it, first.
     const hereParent = here?.parent ? byId.get(here.parent) : undefined
-    const hereInParent = (p: Sess) => (
-      <Box key={`hp-${p.id}`} flexDirection="column" borderStyle="round" borderColor={borderOf(p)} paddingX={1} minWidth={0}>
-        <Box flexDirection="row" justifyContent="space-between" gap={1}>
-          <Box flexDirection="row" gap={1} flexShrink={1} alignItems="center">
-            {isWorking(p, now) && Svg
-              ? <Svg source={PULSE_WORKING} alt="working now" width={12} height={12} isInteractive />
-              : <Text color={isUnanswered(p) ? READY : DOT[st(p)]}>●</Text>}
-            <Button key={`hpt-${p.id}`} plain onPress={() => setUi(u => ({ ...u, view: 'focus', focus: p.id, open: '', tab: '' }))}>
-              <Text bold>{p.title}</Text>
-            </Button>
-          </Box>
-          <Box flexDirection="row" gap={1} flexShrink={0}>
-            <Text color={projectColor(p.project)}>● {projectLabel(p.project)}</Text>
-            <Button key={`go-${p.id}`} plain onPress={() => background($, openSession($, p.id))}>
-              {opening === p.id ? <Text color={ACCENT}>opening…</Text> : <Text dimColor>open ↗</Text>}
-            </Button>
-          </Box>
-        </Box>
-        <Text dimColor>{stateWord[st(p)]} · {ago(now - p.last)}</Text>
-        <Box flexDirection="column" flexShrink={1} minWidth={0} overflow="hidden" marginLeft={1}>
-          {card(here!, true, 1, `@${here!.id}`)}
-        </Box>
-      </Box>
-    )
 
     const boardView = () => (
       <Box flexDirection="column">
@@ -1311,7 +1292,7 @@ export const register: Register = on => {
         {here && (
           <Box key="s-here" flexDirection="column" marginBottom={1}>
             <Text dimColor>HERE</Text>
-            {hereParent ? hereInParent(hereParent) : card(here, true, 0, `@${here.id}`)}
+            {card(hereParent ?? here, true, 0, `@${(hereParent ?? here).id}`)}
           </Box>
         )}
         {/* cards where you act; one quiet line each for the rest */}
