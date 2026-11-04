@@ -700,8 +700,6 @@ test('desktop: the title, the grey line and the needs line each unfold the card;
   for (const line of ['t', 'tm', 'tn']) {
     await ui.press({ key: `${line}-Parser rewrite` })
     expect(await ui.find({ key: 'd-Parser rewrite' })).toBeDefined()
-    // the answers on the unfolded card are their own buttons
-    expect(await ui.find({ key: 'qo-Parser rewrite-0-Q1-1' })).toBeDefined()
     await ui.press({ key: `${line}-Parser rewrite` })
     expect(await ui.find({ key: 'd-Parser rewrite' })).toBeUndefined()
   }
@@ -715,38 +713,26 @@ test('a board in a session it does not know shows no Here', async ($, on) => {
   await ui.unmount()
 })
 
-test('a review page is answered on the card and the answers go to its session in the page format', async ($, on) => {
+test('a review page\'s questions are listed on the card, to answer on the page; mark answered closes it', async ($, on) => {
   const store: Record<string, unknown> = {}
   await start($, on, store)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
   // the count in the accent, its word in the grey of the meta
   expect(await ui.find({ type: 'Text', text: /^\? 2$/ })).toBeDefined()
-  // with questions open, the card unfolds straight onto them
+  // unfolding does not open the questions by itself: the tab does
   await ui.press({ key: 't-Parser rewrite' })
-  expect(await ui.find({ type: 'Text', text: /^Q1\. Keep the old API\?/ })).toBeDefined()
-  // the tab closes them by hand, and opens them again
-  await ui.press({ key: 'tab-Parser rewrite-questions' })
   expect(await ui.find({ type: 'Text', text: /^Q1\. Keep the old API\?/ })).toBeUndefined()
   await ui.press({ key: 'tab-Parser rewrite-questions' })
   expect(await ui.find({ type: 'Text', text: /^Q1\. Keep the old API\?/ })).toBeDefined()
+  // listed only: no options, notes or send on the card
+  expect(await ui.find({ key: 'qo-Parser rewrite-0-Q1-1' })).toBeUndefined()
+  expect(await ui.find({ key: 'qs-Parser rewrite-0' })).toBeUndefined()
 
-  // pick B (not the session's own pick), a note on Q1, Q2 left open, and free text
-  await ui.press({ key: 'qo-Parser rewrite-0-Q1-1' })
-  await ui.input({ key: 'qn-Parser rewrite-0-Q1', text: 'nobody uses it', kind: 'change' })
-  await ui.input({ key: 'qg-Parser rewrite-0', text: 'nice work', kind: 'change' })
-  sent.length = 0
-  await ui.press({ key: 'qs-Parser rewrite-0' })
-  expect(sent).toEqual([{
-    session_id: 'Parser rewrite',
-    message: 'Answers from Parser: open questions:\nQ1 [me]: Remove it now | note: nobody uses it\nGeneral [me]: nice work',
-  }])
-
-  // answered: the badge goes, the tab says so, and the page is remembered
+  // answered on the page: marking it closes it, and it is remembered
+  await ui.press({ key: 'qpm-Parser rewrite-0' })
   expect(await ui.find({ type: 'Text', text: /^\? 2$/ })).toBeUndefined()
-  expect(await ui.find({ key: 'tab-Parser rewrite-questions' })).toMatchObject({ props: { } })
   expect(Object.keys(store.answered as object)).toEqual(['C:\\out\\questions.html'])
-  expect(await ui.find({ type: 'Text', text: /✓ Parser: open questions · answered/ })).toBeDefined()
   await ui.unmount()
 })
 

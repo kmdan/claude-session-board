@@ -1,9 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Answered, Drafts, FullText, Index, IndexMeta, Mark, Marks, Media, Moved, Note, Notes, QPage, Sess, TextHit, Ui } from '../types'
+import type { Answered, FullText, Index, IndexMeta, Mark, Marks, Media, Moved, Note, Notes, QPage, Sess, TextHit, Ui } from '../types'
 import {
-  ago, baseName, byRecent, chatAnswers, composeAnswers, dueBucket, dueWord, isAsking, isOpenPage, isWorking, layoutGraph, matches,
+  ago, baseName, byRecent, chatAnswers, dueBucket, dueWord, isAsking, isOpenPage, isWorking, layoutGraph, matches,
   overlaps, pageSig,
   parseQuick, projectColor, projectLabel, relatedFinder,
   setMark, setProjectNames, stateOf,
@@ -68,7 +68,6 @@ const fullTextAtom = atom({ plugin: 'session-board', key: 'fullText' } as const,
 const movedAtom = atom({ plugin: 'session-board', key: 'moved' } as const, {} as Moved)
 const openingAtom = atom({ plugin: 'session-board', key: 'opening' } as const, '')
 const answeredAtom = atom({ plugin: 'session-board', key: 'answered' } as const, {} as Answered)
-const draftsAtom = atom({ plugin: 'session-board', key: 'drafts' } as const, {} as Drafts)
 // per session, when you last opened its card or the session: a newer ask pulses
 const seenAtom = atom({ plugin: 'session-board', key: 'seen' } as const, {} as Record<string, number>)
 
@@ -407,34 +406,12 @@ async function deliver($: $T, sessionId: string, message: string): Promise<boole
   return false
 }
 
-/** One pick or note on a review page, kept until the answers are sent. */
-async function setDraft($: $T, key: string, patch: { pick?: string; note?: string }): Promise<void> {
-  await update($, draftsAtom, d => ({ ...d, [key]: { ...(d[key] ?? {}), ...patch } }))
-}
-
 /** For a page answered some way the board cannot see (in your own words, out loud). */
 async function markAnswered($: $T, page: QPage): Promise<void> {
   const stored = ((await $.store.get('answered')) as Answered | undefined) ?? {}
   const next = { ...stored, [page.p]: { at: Date.now(), t: page.t, sig: pageSig(page) } }
   await $.store.set('answered', next)
   await update($, answeredAtom, () => next)
-}
-
-/** Sends a page's answers into the session that wrote it, and marks the page answered. */
-async function sendAnswers($: $T, s: Sess, page: QPage): Promise<void> {
-  const drafts = (await read($, draftsAtom)) ?? {}
-  const { text, count } = composeAnswers(page, drafts)
-  if (count === 0) {
-    $.ui.toast('Pick an answer or write a note first.')
-    return
-  }
-  if (!(await deliver($, s.id, text))) return
-  const stored = ((await $.store.get('answered')) as Answered | undefined) ?? {}
-  const next = { ...stored, [page.p]: { at: Date.now(), t: page.t, sig: pageSig(page) } }
-  await $.store.set('answered', next)
-  await update($, answeredAtom, () => next)
-  await update($, draftsAtom, d => Object.fromEntries(Object.entries(d).filter(([k]) => !k.startsWith(`${page.p}#`))))
-  $.ui.toast(`${count} answer${count > 1 ? 's' : ''} sent to "${s.title}"`)
 }
 
 /** Adds a todo from a quick-add line: `@label` and one date word are read out of it. */
@@ -654,7 +631,6 @@ export const register: Register = on => {
     // its own card in Needs you for as long as it waits, not only while fresh
     const asksYou = (s: Sess) => !!s.parent && isAsking(s) && !isWorking(s, now)
       && ['need', 'waiting'].includes(stateOf(s, marks, now))
-    const drafts = (await read($, draftsAtom)) ?? {}
     const openPages = (s: Sess) => s.questions.filter(p => isOpenPage(p, answered, memo.chat.get(p.title)))
     const fullText = await read($, fullTextAtom)
     const now = Date.now()
@@ -793,10 +769,9 @@ export const register: Register = on => {
       )
     }
 
-    // A review page's questions, answered here: each option is a button (★ =
-    // the session's own pick), a note per question, free text at the end, and
-    // Send puts it all into the session in the page's own answer format. The
-    // newest open page shows in full; answered ones fold to a line each.
+    // A review page's questions, listed: its title, open page, mark answered,
+    // then each question on a line. Answering is on the page (the in-card answer
+    // form was taken out on request). Answered pages fold to a line each.
     const questionsBlock = (s: Sess, path: string) => {
       const open = openPages(s).sort((a, b) => b.t - a.t)
       const done = s.questions.filter(p => !isOpenPage(p, answered, memo.chat.get(p.title))).sort((a, b) => b.t - a.t)
@@ -805,7 +780,6 @@ export const register: Register = on => {
         <Box flexDirection="column">
           {page && (() => {
             const pi = s.questions.indexOf(page)
-            const { count } = composeAnswers(page, drafts)
             return (
               <Box key={`qp-${path}-${pi}`} flexDirection="column">
                 <Box flexDirection="row" gap={1}>
@@ -817,43 +791,12 @@ export const register: Register = on => {
                     <Text dimColor>✓ mark answered</Text>
                   </Button>
                 </Box>
-                {page.qs.map(q => {
-                  const key = `${page.p}#${q.q}`
-                  const d = drafts[key] ?? {}
-                  return (
-                    <Box key={`qq-${path}-${pi}-${q.q}`} flexDirection="column" marginTop={1}>
-                      <Text>{q.title}{q.to !== 'me' ? <Text dimColor>  [for {q.to}]</Text> : null}</Text>
-                      {/* the options side by side under their question: one click answers */}
-                      <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-                      {q.opts.map((o, oi) => (
-                        <Button key={`qo-${path}-${pi}-${q.q}-${oi}`} plain
-                          onPress={() => background($, setDraft($, key, { pick: d.pick === o.value ? '' : o.value }))}>
-                          <Text color={d.pick === o.value ? ACCENT : undefined} dimColor={d.pick !== o.value}>
-                            {d.pick === o.value ? '◉ ' : '○ '}{o.label}
-                          </Text>
-                          {o.rec && <Text color={DOT.good}> ★</Text>}
-                        </Button>
-                      ))}
-                      </Box>
-                      {q.notes && (
-                        <Input key={`qn-${path}-${pi}-${q.q}`} placeholder="note" value={d.note ?? ''}
-                          onInput={v => background($, setDraft($, key, { note: v }))}
-                          onSubmit={v => background($, setDraft($, key, { note: v }))} />
-                      )}
-                    </Box>
-                  )
-                })}
-                <Box marginTop={1} flexDirection="column">
-                  <Input key={`qg-${path}-${pi}`} placeholder="Anything else? (screenshots: paste them on the page)"
-                    value={drafts[`${page.p}#general`]?.note ?? ''}
-                    onInput={v => background($, setDraft($, `${page.p}#general`, { note: v }))}
-                    onSubmit={v => background($, setDraft($, `${page.p}#general`, { note: v }))} />
-                </Box>
-                <Box marginTop={1}>
-                  <Button key={`qs-${path}-${pi}`} variant="primary"
-                    label={count ? `Send ${count} answer${count > 1 ? 's' : ''} to this session` : 'Send answers'}
-                    onPress={() => background($, sendAnswers($, s, page))} />
-                </Box>
+                {/* what it asks, one line each: answering happens on the page itself */}
+                {page.qs.map(q => (
+                  <Text key={`qq-${path}-${pi}-${q.q}`} dimColor wrap="truncate-end">
+                    {q.title}{q.to !== 'me' ? `  [for ${q.to}]` : ''}
+                  </Text>
+                ))}
                 {open.length > 1 && <Text dimColor>{open.length - 1} older question page{open.length > 2 ? 's' : ''} wait after this one.</Text>}
               </Box>
             )
@@ -1014,7 +957,7 @@ export const register: Register = on => {
       const openCount = allNotes.filter(n => !n.done).length
       tabs.push({ key: 'notes', label: allNotes.length ? `Todos ${openCount}` : '+ Todo' })
       // a card with open questions unfolds onto them: answering is what it waits for
-      const tab = !isOpen ? '' : ui.tab === '' ? (askCount ? 'questions' : '') : ui.tab
+      const tab = !isOpen || ui.tab === 'none' ? '' : ui.tab
       const toggleTab = (k: Ui['tab']) => setUi(u => ({ ...u, tab: tab === k ? 'none' : k }))
       const toggleCard = () => {
         const isOpening = ui.open !== path
