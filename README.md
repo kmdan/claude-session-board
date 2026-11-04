@@ -93,8 +93,17 @@ or recolour some, put a `projects.json` beside the plugin (git ignores it):
 
 ## Development
 
-The board is a Claude Code mod: `hooks/register.tsx` draws it, `hooks/board.ts`
-holds the pure logic, `scripts/sessionindex.py` builds the index.
+The board is a Claude Code mod, in `hooks/`:
+
+- `register.tsx`: the hooks and the board's frame (counts, search, tabs)
+- `views.tsx`: the sections and views; `cards.tsx`: a session's card and line
+- `draw.ts`: what one drawing reads and works out, and the colours
+- `state.ts`: the shared values and the index in memory (only this file touches the atoms)
+- `indexing.ts`: the indexer, the timed checks, search, opening the pane
+- `actions.ts`: what the buttons do
+- `board.ts`: the pure logic
+
+`scripts/sessionindex.py` builds the index.
 
 ```
 claude plugin validate .

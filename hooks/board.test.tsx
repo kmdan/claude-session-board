@@ -55,6 +55,9 @@ const ran: string[][] = []
 const sent: { session_id: string; message: string }[] = []
 let opened = 0
 let placed = true // what the surface answers to ui.open: false = nothing drew the pane
+let surfaces: string[] = ['desktop'] // what draws this session: none = nobody is looking at it
+let quickRows: Record<string, unknown>[] = [] // what the 20-second check finds in the app's records
+let draws = 0 // a drawing reads the trail once: how often the board was drawn
 let closed = 0
 // what the app reports of the board's pane: none, or one it keeps open but hidden
 let panes: { id: string; title: string; isShown: boolean; isFocused: boolean; isPlaced: boolean }[] = []
@@ -69,6 +72,7 @@ const disk: Record<string, { text: string; mtimeMs: number }> = {}
 // `ownClock` false: the test brings mock.clock (to move time by hand) instead of these stand-ins
 function engine(on: any, store: Record<string, unknown> = {}, self = 'cli-elsewhere', ownClock = true) {
   on('session.id', () => ({ value: self }))
+  on('session.surfaces', () => ({ value: surfaces }))
   on('ui.log', (_: unknown, e: any) => {
     logged.push(String(e.text ?? JSON.stringify(e)))
     return { value: undefined }
@@ -100,7 +104,11 @@ function engine(on: any, store: Record<string, unknown> = {}, self = 'cli-elsewh
     return { value: undefined }
   })
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
-  on('store.get', (_: unknown, e: any) => ({ value: store[e.key] }))
+  on('session.attach', (_: unknown, e: any) => ({ clientId: e.clientId }))
+  on('store.get', (_: unknown, e: any) => {
+    if (e.key === 'trail') draws += 1
+    return { value: store[e.key] }
+  })
   on('store.set', (_: unknown, e: any) => {
     store[e.key] = JSON.parse(JSON.stringify(e.value))
     return { value: undefined }
@@ -113,6 +121,8 @@ function engine(on: any, store: Record<string, unknown> = {}, self = 'cli-elsewh
     if (isIndexer && e.argv[3] === '--search') {
       searched.push(String(e.stdin ?? e.init?.stdin))
       stdout = JSON.stringify({ hits: [{ cli: 'cli-Old probe', count: 4, snip: '…the flaky timeout came back…' }], files: 5, ms: 3 })
+    } else if (isIndexer && e.argv[3] === '--quick') {
+      stdout = JSON.stringify({ rows: quickRows, written: {} })
     } else if (isIndexer) stdout = JSON.stringify(INDEX)
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
@@ -189,6 +199,19 @@ test('timing at a real size: 660 sessions, first draw, a search keystroke, unfol
     t0 = performance.now()
     await ui.press({ key: 'show-waiting' })
     times.unfoldSection = performance.now() - t0
+    // single presses are noisy: the middle of 21 redraws of each order
+    const middle = async (keys: string[]) => {
+      const ms: number[] = []
+      for (let i = 0; i < 21; i += 1) {
+        t0 = performance.now()
+        await ui.press({ key: keys[i % keys.length] })
+        ms.push(performance.now() - t0)
+      }
+      return ms.sort((a, b) => a - b)[10]
+    }
+    times.redrawByState = await middle(['hide-waiting', 'show-waiting'])
+    await ui.press({ key: 'by-project' })
+    times.redrawByProject = await middle(['show-parked', 'hide-parked'])
     console.log(`TIMING ${JSON.stringify(Object.fromEntries(Object.entries(times).map(([k, v]) => [k, Math.round(v)])))}`)
     await ui.unmount()
   } finally {
@@ -351,6 +374,63 @@ test('a session start opens the board; the first indexes, a second reads its sna
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(indexRuns()).toBe(before + 1)
   expect(Object.keys(disk).some(p => p.endsWith('snapshot.json'))).toBe(true)
+  await ui.unmount()
+})
+
+test('a session nobody is looking at opens no pane and writes no line in its chat, until a window attaches', async ($, on) => {
+  engine(on)
+  const before = opened
+  logged.length = 0
+  surfaces = []
+  try {
+    await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+    expect(opened).toBe(before)
+    expect(logged).toEqual([])
+    surfaces = ['desktop']
+    await $.session.attach({ surface: 'desktop', clientId: 'desktop:default' })
+    // it opens behind the attach; a tick of the clock lets that finish
+    await new Promise(done => setTimeout(done, 50))
+    expect(opened).toBe(before + 1)
+  } finally {
+    surfaces = ['desktop']
+  }
+})
+
+test('the 20-second check redraws only when a record really differs', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.now() })
+  await start($, on, undefined, undefined, false)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const docs = INDEX.sessions.find(s => s.id === 'Docs audit')!
+  // the same record as the board has: its time window overlaps the last check's
+  quickRows = [{ id: docs.id, title: docs.title, last: docs.last, appStatus: docs.appStatus, detail: docs.detail, needs: docs.needs }]
+  try {
+    await clock.advance(20_000)
+    draws = 0
+    await clock.advance(20_000)
+    expect(draws).toBe(0)
+    // a record that did change shows
+    quickRows = [{ id: docs.id, title: 'Docs audit, renamed' }]
+    await clock.advance(20_000)
+    expect(draws).toBeGreaterThan(0)
+    expect(await ui.find({ key: 't-Docs audit' })).toBeDefined()
+  } finally {
+    quickRows = []
+    await ui.unmount()
+  }
+})
+
+test('opening a session you have already seen does not write or redraw for it', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  await start($, on, store)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'by-project' })
+  // an unseen one is marked on the way out
+  await ui.press({ key: 't-Docs audit' })
+  const seenAt = (store.seen as Record<string, number>)['Docs audit']
+  expect(seenAt).toBeGreaterThan(0)
+  // the second time there is nothing new to mark
+  await ui.press({ key: 't-Docs audit' })
+  expect((store.seen as Record<string, number>)['Docs audit']).toBe(seenAt)
   await ui.unmount()
 })
 
