@@ -666,10 +666,13 @@ export const register: Register = on => {
     const chipOf = (p: string) => (p.startsWith('scratch-') ? 'scratch' : p)
     const inChip = (s: Sess | undefined) => !ui.project || (!!s && chipOf(s.project) === ui.project)
     const inProject = ui.project ? all.filter(inChip) : all
+    // archived sessions are found by search only: the board's lists leave them out
+    // (the one this board is drawn in stays, under Here)
+    const listed = inProject.filter(s => !s.archived)
     const st = (s: Sess) => stateOf(s, marks, now)
     const groups: Record<State, Sess[]> = { need: [], waiting: [], working: [], today: [], week: [], earlier: [], good: [], done: [], parked: [] }
     // the watched session has its own place under Here, so it is not listed twice
-    for (const s of [...inProject].sort(byRecent)) if (!here || s.id !== here.id) groups[st(s)].push(s)
+    for (const s of [...listed].sort(byRecent)) if (!here || s.id !== here.id) groups[st(s)].push(s)
     // a subsession whose parent is in the same list shows nested under it: the
     // header counts what a section actually lists, as the sections do
     // A subsession whose parent is in the same list shows nested under it, not
@@ -701,7 +704,7 @@ export const register: Register = on => {
     // chips: every project with something this week, busiest first (a new project
     // must show from its first session; the row wraps)
     const weekCount: Record<string, number> = {}
-    for (const s of all) if (now - s.last < 7 * 86_400_000) weekCount[chipOf(s.project)] = (weekCount[chipOf(s.project)] ?? 0) + 1
+    for (const s of all) if (!s.archived && now - s.last < 7 * 86_400_000) weekCount[chipOf(s.project)] = (weekCount[chipOf(s.project)] ?? 0) + 1
     const chips = Object.entries(weekCount).sort((a, b) => b[1] - a[1]).map(([p]) => p)
 
     const stateWord: Record<State, string> = {
@@ -835,6 +838,7 @@ export const register: Register = on => {
     // children by parent, newest first: drawn as live rows under their parent's card
     const kidsOf = new Map<string, Sess[]>()
     for (const o of [...all].sort(byRecent)) {
+      if (o.archived && (!here || o.id !== here.id)) continue
       if (o.parent && byId.has(o.parent)) kidsOf.set(o.parent, [...(kidsOf.get(o.parent) ?? []), o])
     }
 
@@ -1344,7 +1348,7 @@ export const register: Register = on => {
     // By project: one section per project, the project last edited first, each
     // session a line, newest first. Done and parked stay folded at the end.
     const byProject = () => {
-      const open = inProject.filter(s => (!here || s.id !== here.id) && !['done', 'parked'].includes(st(s)))
+      const open = listed.filter(s => (!here || s.id !== here.id) && !['done', 'parked'].includes(st(s)))
       const byChip = new Map<string, Sess[]>()
       for (const s of [...open].sort(byRecent)) {
         const p = chipOf(s.project)
@@ -1395,7 +1399,7 @@ export const register: Register = on => {
     const labelsInUse = [...new Set(allTodos.filter(r => !r.n.done).flatMap(r => r.n.labels ?? []))].sort()
     const dueToday = allTodos.filter(r => !r.n.done && ['overdue', 'today'].includes(dueBucket(r.n.due, now))).length
     // sessions with unanswered question pages written in the last two weeks (older ones are history)
-    const asking = all.filter(s => openPages(s).some(p => now - p.t < 14 * 86_400_000)).length
+    const asking = all.filter(s => !s.archived && openPages(s).some(p => now - p.t < 14 * 86_400_000)).length
     // the sessions you were in, last looked at first: what ‹ steps back through
     const recentTrail = all.filter(s => !s.archived && (s.touched ?? 0) > 0 && (!here || s.id !== here.id))
       .sort((a, b) => (b.touched ?? 0) - (a.touched ?? 0)).slice(0, 30).map(s => s.id)
