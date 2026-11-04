@@ -521,9 +521,19 @@ test('the board switches to by project: a section per project, the project last 
   expect(webapp).toBeDefined()
   expect(api).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeUndefined()
-  // each session is a line under its project; one with open questions says how many
+  // each session is a line under its project: its title opens the session, ▸ unfolds its card
   expect(await ui.find({ key: 'rd-Docs audit' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^\? 2$/ })).toBeDefined()
+  await ui.press({ key: 't-Docs audit' })
+  expect(ran.some(a => a.join(' ').endsWith('epitaxy/Docs audit'))).toBe(true)
+  await ui.press({ key: 'u-Docs audit' })
+  expect(await ui.find({ key: 'c-Docs audit' })).toBeDefined()
+  // its ▾ (or its title) folds the card back into its line
+  await ui.press({ key: 'f-Docs audit' })
+  expect(await ui.find({ key: 'c-Docs audit' })).toBeUndefined()
+  await ui.press({ key: 'u-Docs audit' })
+  await ui.press({ key: 't-Docs audit' })
+  expect(await ui.find({ key: 'c-Docs audit' })).toBeUndefined()
+  expect(await ui.find({ key: 'u-Docs audit' })).toBeDefined()
   await ui.press({ key: 'by-state' })
   expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeDefined()
   await ui.unmount()

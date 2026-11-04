@@ -1065,6 +1065,8 @@ export const register: Register = on => {
           <Box flexDirection="row" justifyContent="space-between" gap={1} minWidth={0}>
             {/* the title gives way in a narrow pane (cut with "…"); the corner keeps its place */}
             <Box flexDirection="row" gap={1} flexShrink={1} minWidth={0} overflow="hidden" alignItems="center">
+              {/* the fold mark, as on a line: ▾ folds an open card back, ▸ unfolds it */}
+              <Button key={`f-${path}`} plain onPress={toggleCard}>{isOpen ? '▾' : '▸'}</Button>
               {dots}
               <Button key={`t-${path}`} plain onPress={toggleCard}>
                 <Text bold>{s.title}</Text>
@@ -1152,7 +1154,6 @@ export const register: Register = on => {
     // One quiet line for a session you need not act on (working, moved today,
     // earlier): its state dot, its title, project and age. A click unfolds it
     // into its full card in place. Cards stay for what waits on you.
-    const rowAsks = (s: Sess) => openPages(s).reduce((sum, p) => sum + p.qs.length, 0)
     const row = (s: Sess, withTag = true) => {
       if (ui.open === s.id) return card(s, true)
       const cs = st(s)
@@ -1166,17 +1167,14 @@ export const register: Register = on => {
           {(isWorking(s, now) || kidList.some(c => isWorking(c, now))) && Svg
             ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
             : <Text color={isUnanswered(s) ? READY : DOT[cs]}>●</Text>}
+          {/* ▸ unfolds the line into its card; the title itself opens the session */}
+          <Button key={`u-${s.id}`} plain onPress={unfold}>▸</Button>
           <Box flexGrow={1} flexShrink={1}>
-            <Button key={`t-${s.id}`} plain onPress={unfold}>
+            <Button key={`t-${s.id}`} plain onPress={() => background($, openSession($, s.id))}>
               <Text bold={isUnseen(s)}>{s.title}</Text>
               {kids > 0 && <Text dimColor>  +{kids}{reports ? ` ↩${reports}` : ''}</Text>}
             </Button>
           </Box>
-          {/* what a card would flag, in a word: open questions, or the session waits on you
-              (beside the button: the desktop draws a button's text in its own colour) */}
-          {rowAsks(s) > 0
-            ? <Text color={ACCENT}>? {rowAsks(s)}</Text>
-            : isAsking(s) && !isWorking(s, now) && ['need', 'waiting'].includes(cs) && <Text color={ACCENT}>asks you</Text>}
           {/* a one-off scratch folder shows as its chip: the dated name wrapped the line */}
           {withTag && <Text color={projectColor(s.project)} wrap="truncate-end">{projectLabel(chipOf(s.project))}</Text>}
           <Text dimColor>{ago(now - s.last)}</Text>
