@@ -458,6 +458,9 @@ async function startFromTodo($: $T, n: Note): Promise<void> {
  * once instead of looking dead.
  */
 async function openSession($: $T, id: string): Promise<void> {
+  // the link goes out first: everything else redraws the board, which with
+  // hundreds of sessions takes a moment the switch should not wait for
+  const launched = $.process.run(['cmd', '/c', 'start', '', `claude://claude.ai/epitaxy/${id}`])
   await update($, openingAtom, () => id)
   $.clock.after(5_000, () => {
     background($, update($, openingAtom, o => (o === id ? '' : o)))
@@ -466,7 +469,7 @@ async function openSession($: $T, id: string): Promise<void> {
   // leaving for a session: the search is cleared, the project chip stays (it is where you work)
   typedQuery = ''
   background($, update($, uiAtom, u => (u.query === '' ? u : { ...u, query: '', cleared: (u.cleared ?? 0) + 1 })))
-  await $.process.run(['cmd', '/c', 'start', '', `claude://claude.ai/epitaxy/${id}`])
+  await launched
 }
 
 /**
