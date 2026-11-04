@@ -621,6 +621,8 @@ export const register: Register = on => {
     // the terminal has no Svg; it keeps the word "indexing…" alone
     const Svg = 'Svg' in table ? table.Svg : undefined
     isShown = true
+    // a pane docked narrow: shorter tags and names, so the corners stay inside the cards
+    const narrow = ((e.props as { bodyColumns?: number }).bodyColumns ?? 80) < 60
     const ix = await readIndex($)
     const ui = await read($, uiAtom)
     const marks = (await read($, marksAtom)) ?? {}
@@ -938,7 +940,7 @@ export const register: Register = on => {
             const word = working ? 'working' : asks ? 'asks you' : reported ? 'reported'
               : cs === 'need' ? 'touched today' : stateWord[cs]
             return (
-              <Box key={`kr-${cPath}`} flexDirection="row" alignItems="center">
+              <Box key={`kr-${cPath}`} flexDirection="row" alignItems="center" minWidth={0} overflow="hidden">
                 <Text dimColor>{isLast ? '└ ' : '├ '}</Text>
                 {/* drawn beside the button: a button holds only text */}
                 {working && Svg
@@ -1033,7 +1035,7 @@ export const register: Register = on => {
             {here && s.id === here.id && <Text color={HERE}>◉ here  </Text>}
             {/* a nested card in its main session's project says nothing new with the tag */}
             {!(depth > 0 && s.parent && byId.get(s.parent)?.project === s.project)
-              && <Text color={projectColor(s.project)}>● {projectLabel(s.project)}</Text>}
+              && <Text color={projectColor(s.project)}>● {narrow && projectLabel(s.project).length > 12 ? `${projectLabel(s.project).slice(0, 11)}…` : projectLabel(s.project)}</Text>}
           </Text>
           {/* one click to the session itself; the title only unfolds the card */}
           {!(here && s.id === here.id) && (
@@ -1056,8 +1058,9 @@ export const register: Register = on => {
               </Button>
             </Box>
           )}
-          <Box flexDirection="row" justifyContent="space-between" gap={1}>
-            <Box flexDirection="row" gap={1} flexShrink={1} alignItems="center">
+          <Box flexDirection="row" justifyContent="space-between" gap={1} minWidth={0}>
+            {/* the title gives way in a narrow pane (cut with "…"); the corner keeps its place */}
+            <Box flexDirection="row" gap={1} flexShrink={1} minWidth={0} overflow="hidden" alignItems="center">
               {dots}
               <Button key={`t-${path}`} plain onPress={toggleCard}>
                 <Text bold>{s.title}</Text>
@@ -1450,18 +1453,19 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column" paddingX={1}>
-        <Box flexDirection="row" justifyContent="space-between">
+        {/* in a narrow pane the buttons go under the counts, not squeeze them into a column */}
+        <Box flexDirection="row" flexWrap="wrap" justifyContent="space-between" columnGap={2}>
           <Text bold>
             {topLevel(groups.need).length} need you · {topLevel(groups.waiting).length} waiting · {topLevel(groups.working).length} working · {topLevel(groups.good).length} good enough
             {dueToday > 0 && <Text color={ACCENT}> · {dueToday} due</Text>}
             {asking > 0 && <Text color={ACCENT}> · ? {asking}</Text>}
             {unseenCount > 0 && <Text color={READY}> · {unseenCount} unseen</Text>}
           </Text>
-          <Box flexDirection="row" gap={1} alignItems="center">
+          <Box flexDirection="row" gap={1} alignItems="center" flexShrink={0}>
             {/* back and forward through the sessions you were in */}
             {backTo && (
               <Button key="trail-back" plain onPress={() => background($, stepTrail($, 1, here?.id, recentTrail))}>
-                <Text dimColor>‹ {(byId.get(backTo ?? '')?.title ?? '').slice(0, 18)}</Text>
+                <Text dimColor>‹ {(byId.get(backTo ?? '')?.title ?? '').slice(0, narrow ? 12 : 18)}</Text>
               </Button>
             )}
             {trail && trail.pos > 0 && (
