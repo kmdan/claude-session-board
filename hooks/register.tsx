@@ -1298,18 +1298,52 @@ export const register: Register = on => {
             {card(hereParent ?? here, true, 0, `@${(hereParent ?? here).id}`)}
           </Box>
         )}
-        {/* cards where you act; one quiet line each for the rest */}
-        {section('need', 'Needs you', groups.need, ACCENT)}
-        {folded('waiting', 'Still waiting on you, 1-7 days', groups.waiting, false)}
-        {section('working', 'Working', groups.working, undefined, false, true)}
-        {section('today', 'Today, not touched by you yet', groups.today, undefined, false, true)}
-        {section('week', 'Earlier this week', groups.week, undefined, false, true)}
-        {folded('good', 'Good enough', groups.good, false)}
-        {folded('earlier', 'Earlier this month', groups.earlier)}
-        {folded('done', 'Done', groups.done)}
-        {folded('parked', 'Parking lot', groups.parked)}
+        {/* two orders of the same sessions: by what they need of you, or by project */}
+        <Box flexDirection="row" gap={1} marginBottom={1}>
+          <Text dimColor>Order:</Text>
+          <Button key="by-state" plain onPress={() => setUi(u => ({ ...u, boardBy: 'state' }))}>
+            <Text bold={ui.boardBy !== 'project'} dimColor={ui.boardBy === 'project'}>by state</Text>
+          </Button>
+          <Text dimColor>·</Text>
+          <Button key="by-project" plain onPress={() => setUi(u => ({ ...u, boardBy: 'project' }))}>
+            <Text bold={ui.boardBy === 'project'} dimColor={ui.boardBy !== 'project'}>by project</Text>
+          </Button>
+        </Box>
+        {ui.boardBy === 'project' ? byProject() : (
+          <Box flexDirection="column">
+            {/* cards where you act; one quiet line each for the rest */}
+            {section('need', 'Needs you', groups.need, ACCENT)}
+            {folded('waiting', 'Still waiting on you, 1-7 days', groups.waiting, false)}
+            {section('working', 'Working', groups.working, undefined, false, true)}
+            {section('today', 'Today, not touched by you yet', groups.today, undefined, false, true)}
+            {section('week', 'Earlier this week', groups.week, undefined, false, true)}
+            {folded('good', 'Good enough', groups.good, false)}
+            {folded('earlier', 'Earlier this month', groups.earlier)}
+            {folded('done', 'Done', groups.done)}
+            {folded('parked', 'Parking lot', groups.parked)}
+          </Box>
+        )}
       </Box>
     )
+
+    // By project: one section per project, the project last edited first, each
+    // session a line, newest first. Done and parked stay folded at the end.
+    const byProject = () => {
+      const open = inProject.filter(s => (!here || s.id !== here.id) && !['done', 'parked'].includes(st(s)))
+      const byChip = new Map<string, Sess[]>()
+      for (const s of [...open].sort(byRecent)) {
+        const p = chipOf(s.project)
+        byChip.set(p, [...(byChip.get(p) ?? []), s])
+      }
+      const order = [...byChip.entries()].sort((a, b) => b[1][0].last - a[1][0].last)
+      return (
+        <Box flexDirection="column">
+          {order.map(([p, list]) => section(`proj-${p}`, `${projectLabel(p)}, ${ago(now - list[0].last)} ago`, list, projectColor(p), false, true))}
+          {folded('done', 'Done', groups.done)}
+          {folded('parked', 'Parking lot', groups.parked)}
+        </Box>
+      )
+    }
 
     const mediaView = () => {
       type Row = { s: Sess; m?: Media; a?: { url: string; title: string; t: number }; t: number }

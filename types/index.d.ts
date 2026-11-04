@@ -122,6 +122,8 @@ export type Ui = {
   /** label filter of the Todos view; '' = all */
   label: string
   focus: string
+  /** the board's order: by what sessions need of you (the default), or by project, last edited first */
+  boardBy?: 'state' | 'project'
   /** the view a focus was opened from, so "back" returns there */
   from?: 'graph'
   /** the one detail tab open on the open card, one at a time keeps an open card short:

@@ -512,6 +512,22 @@ test('‹ steps back to the session you were in before, › forward again from t
   }
 })
 
+test('the board switches to by project: a section per project, the project last edited first', async ($, on) => {
+  await start($, on)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'by-project' })
+  const webapp = await ui.find({ type: 'Text', text: /^WEBAPP, .* AGO · / })
+  const api = await ui.find({ type: 'Text', text: /^API, .* AGO · / })
+  expect(webapp).toBeDefined()
+  expect(api).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^NEEDS YOU/ })).toBeUndefined()
+  // each session is a line under its project
+  expect(await ui.find({ key: 'rd-Docs audit' })).toBeDefined()
+  await ui.press({ key: 'by-state' })
+  expect(await ui.find({ type: 'Text', text: /^NEEDS YOU/ })).toBeDefined()
+  await ui.unmount()
+})
+
 const BAND = {
   plugin: 'session-board', component: 'AbovePrompt', requestId: 'band', surface: 'desktop',
   props: { hasSurvey: false, isWorking: false, bodyColumns: 80, view: {} },
