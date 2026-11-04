@@ -527,6 +527,8 @@ test('the board switches to by project: a section per project, the project last 
   expect(ran.some(a => a.join(' ').endsWith('epitaxy/Docs audit'))).toBe(true)
   await ui.press({ key: 'u-Docs audit' })
   expect(await ui.find({ key: 'c-Docs audit' })).toBeDefined()
+  // a subsession that asks you is a short line under its main session's line, and opens directly
+  expect(await ui.find({ key: 'sl-Parser edge cases' })).toBeDefined()
   // its ▾ (or its title) folds the card back into its line
   await ui.press({ key: 'f-Docs audit' })
   expect(await ui.find({ key: 'c-Docs audit' })).toBeUndefined()

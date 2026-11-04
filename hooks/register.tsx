@@ -1154,6 +1154,30 @@ export const register: Register = on => {
     // One quiet line for a session you need not act on (working, moved today,
     // earlier): its state dot, its title, project and age. A click unfolds it
     // into its full card in place. Cards stay for what waits on you.
+    // By project, under a session's line: its subsessions that are live (asking
+    // you, working, or moved in the last day), one short line each; the title
+    // opens the subsession. The rest stay in the line's "+N".
+    const subLines = (s: Sess) => {
+      if (ui.open === s.id) return null
+      const live = (kidsOf.get(s.id) ?? []).filter(c => asksYou(c) || isWorking(c, now) || now - c.last < 86_400_000).slice(0, 4)
+      return live.map((c, i) => {
+        const working = isWorking(c, now)
+        const word = working ? 'working' : asksYou(c) ? 'asks you' : hasReported(c) ? 'reported' : ''
+        return (
+          <Box key={`sl-${s.id}>${c.id}`} flexDirection="row" alignItems="center" marginLeft={2} minWidth={0} overflow="hidden">
+            <Text dimColor>{i === live.length - 1 ? '└ ' : '├ '}</Text>
+            {working && Svg
+              ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
+              : <Text color={isUnanswered(c) ? READY : DOT[st(c)]}>●</Text>}
+            <Button key={`sl-${c.id}`} plain onPress={() => background($, openSession($, c.id))}>
+              <Text> {c.title}</Text>
+            </Button>
+            <Text color={asksYou(c) ? ACCENT : undefined} dimColor={!asksYou(c)}> {word ? `${word} · ` : ''}{ago(now - c.last)}</Text>
+          </Box>
+        )
+      })
+    }
+
     const row = (s: Sess, withTag = true) => {
       if (ui.open === s.id) return card(s, true)
       const cs = st(s)
@@ -1201,7 +1225,9 @@ export const register: Register = on => {
     const section = (key: string, title: string, items: Sess[], color?: string, withState = false, asRows = false, opts: SectionOpts = {}) => {
       // a subsession whose parent is in this same list shows nested under it, not twice
       const top = topLevel(items)
-      const list = opts.byTime ? [...top].sort((a, b) => b.last - a.last) : top
+      // newest first by the family's latest move: a main session whose subsession just moved comes up
+      const famAt = (s: Sess) => Math.max(s.last, kidsOf.get(s.id)?.[0]?.last ?? 0)
+      const list = opts.byTime ? [...top].sort((a, b) => famAt(b) - famAt(a)) : top
       if (list.length === 0) return null
       const limit = ui.limits[key] ?? (asRows ? 8 : SHOWN)
       const more = list.length > limit && (
@@ -1229,7 +1255,12 @@ export const register: Register = on => {
           {asRows
             ? (
               <Box flexDirection="column" borderStyle="round" borderColor={BORDER} paddingX={1}>
-                {list.slice(0, limit).map(s => row(s, opts.project === undefined))}
+                {list.slice(0, limit).map(s => (opts.project === undefined ? row(s) : (
+                  <Box key={`fam-${s.id}`} flexDirection="column">
+                    {row(s, false)}
+                    {subLines(s)}
+                  </Box>
+                )))}
                 {more}
               </Box>
             )
