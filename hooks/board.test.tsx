@@ -209,7 +209,7 @@ test('a subsession that just asked is a card on its main card, which says so and
     expect(await ui.find({ key: nested })).toBeDefined()
     expect(await ui.find({ key: 't-Parser edge cases' })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: /1 sub asks you/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^NEEDS YOU · 1/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Needs you 1(?!\d)/ })).toBeDefined()
     // nested, it needs no "Parent ›" line: it sits under its parent
     expect(await ui.find({ type: 'Text', text: /^Parser rewrite ›$/ })).toBeUndefined()
     // opening it marks it seen; it stays where it is
@@ -235,8 +235,8 @@ test('a subsession that only reported back stays under its parent, which says so
     expect(await ui.find({ type: 'Text', text: /reported · / })).toBeDefined()
     // not asking you: out of Needs you (only its parent there), and not listed on its own
     // anywhere: it is a row on its main session's rail
-    expect(await ui.find({ type: 'Text', text: /^NEEDS YOU · 1/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^TODAY, NOT TOUCHED BY YOU YET/ })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /^Needs you 1(?!\d)/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Today \d/ })).toBeUndefined()
     expect(await ui.find({ key: 'k-Parser rewrite>Parser edge cases' })).toBeDefined()
     await ui.press({ key: 't-Parser rewrite' })
     expect(await ui.find({ key: 'o-Parser rewrite' })).toBeDefined()
@@ -384,15 +384,15 @@ test('Enter searches what was said in conversations, and a hit opens its card', 
   // emptying the box (no Enter) brings the board back at once, with no wait on a timer
   await ui.input({ key: 'q', text: '', kind: 'change' })
   expect(await ui.find({ type: 'Text', text: /Said in conversations/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^NEEDS YOU/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeDefined()
   // a second search after it works too, and clears again
   await ui.input({ key: 'q', text: 'parser', kind: 'change' })
   await clock.advance(200)
-  expect(await ui.find({ type: 'Text', text: /^FOUND FOR "parser"/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Found for "parser"/ })).toBeDefined()
   // ✕ clears in one click: the board is back and the box drawn anew, empty
   await ui.press({ key: 'q-clear' })
-  expect(await ui.find({ type: 'Text', text: /^FOUND FOR/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^NEEDS YOU/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Found for/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeDefined()
   expect(await ui.find({ key: 'q1' })).toBeDefined()
   expect(await ui.find({ key: 'q-clear' })).toBeUndefined()
   await ui.unmount()
@@ -516,15 +516,15 @@ test('the board switches to by project: a section per project, the project last 
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await ui.press({ key: 'by-project' })
-  const webapp = await ui.find({ type: 'Text', text: /^WEBAPP, .* AGO · / })
-  const api = await ui.find({ type: 'Text', text: /^API, .* AGO · / })
+  const webapp = await ui.find({ type: 'Text', text: /^webapp \d+ · active .* ago/ })
+  const api = await ui.find({ type: 'Text', text: /^api \d+ · active .* ago/ })
   expect(webapp).toBeDefined()
   expect(api).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^NEEDS YOU/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeUndefined()
   // each session is a line under its project
   expect(await ui.find({ key: 'rd-Docs audit' })).toBeDefined()
   await ui.press({ key: 'by-state' })
-  expect(await ui.find({ type: 'Text', text: /^NEEDS YOU/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeDefined()
   await ui.unmount()
 })
 
@@ -577,10 +577,10 @@ test('the board sorts sessions into needs-you, working and parked, on every surf
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('1 need you · 1 waiting · 1 working · 0 good enough · ? 1 · 2 unseen')
-    expect(await ui.find({ type: 'Text', text: /^NEEDS YOU · 1/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^Still waiting on you, 1-7 days · 1 ›/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^WORKING · 1/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^Parking lot · 2 ›/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Needs you 1(?!\d)/ })).toBeDefined()
+    expect((await ui.find({ key: 'show-waiting' }) as any)?.props?.label).toBe('Still waiting on you, 1-7 days · 1 ▾')
+    expect(await ui.find({ type: 'Text', text: /^Working 1(?!\d)/ })).toBeDefined()
+    expect((await ui.find({ key: 'show-parked' }) as any)?.props?.label).toBe('Parking lot · 2 ▾')
     // the project (its folder name, with no projects.json) sits on its row (working: one quiet line)
     expect(await ui.find({ type: 'Text', text: /^api$/ })).toBeDefined()
     expect(await ui.find({ key: 'row-Docs audit' })).toBeDefined()
@@ -603,7 +603,7 @@ test('marking a session good enough moves it, and the files overlap shows', asyn
   // good enough: out of Needs you, into the folded Good enough
   await ui.press({ key: 'g-Parser rewrite' })
   expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 1 waiting · 1 working · 1 good enough · ? 1 · 1 unseen')
-  expect(await ui.find({ type: 'Text', text: /^Good enough · 1 ›/ })).toBeDefined()
+  expect((await ui.find({ key: 'show-good' }) as any)?.props?.label).toBe('Good enough · 1 ▾')
   await ui.unmount()
 })
 
@@ -613,13 +613,13 @@ test('search finds an archived session by a file it wrote and by its commit', as
 
   await ui.input({ key: 'q', text: 'csvexporter' })
   // the label in capitals, the query in its own case
-  expect(await ui.find({ type: 'Text', text: /^FOUND FOR "csvexporter" · 1/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Found for "csvexporter" 1(?!\d)/ })).toBeDefined()
   await ui.input({ key: 'q', text: 'a1b2c3d' })
   expect(await ui.find({ type: 'Text', text: /\(1\)/ })).toBeDefined()
   // opening the found session leaves for it: the board you come back to has no search on
   await ui.press({ key: 'go-Archived exporter' })
-  expect(await ui.find({ type: 'Text', text: /^FOUND FOR/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^NEEDS YOU/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Found for/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeDefined()
   expect(await ui.find({ key: 'q-clear' })).toBeUndefined()
   await ui.unmount()
 })
@@ -795,6 +795,6 @@ test('a quiet line marks its session done or parked in one click, without unfold
   expect(await ui.find({ key: 'rd-Docs audit' })).toBeDefined()
   await ui.press({ key: 'rd-Docs audit' })
   expect(await ui.find({ key: 'rd-Docs audit' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^Done · 1 ›/ })).toBeDefined()
+  expect((await ui.find({ key: 'show-done' }) as any)?.props?.label).toBe('Done · 1 ▾')
   await ui.unmount()
 })

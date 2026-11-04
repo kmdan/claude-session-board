@@ -1147,7 +1147,7 @@ export const register: Register = on => {
     // One quiet line for a session you need not act on (working, moved today,
     // earlier): its state dot, its title, project and age. A click unfolds it
     // into its full card in place. Cards stay for what waits on you.
-    const row = (s: Sess) => {
+    const row = (s: Sess, withTag = true) => {
       if (ui.open === s.id) return card(s, true)
       const cs = st(s)
       const kidList = kidsOf.get(s.id) ?? []
@@ -1166,7 +1166,8 @@ export const register: Register = on => {
               {kids > 0 && <Text dimColor>  +{kids}{reports ? ` ↩${reports}` : ''}</Text>}
             </Button>
           </Box>
-          <Text color={projectColor(s.project)}>{projectLabel(s.project)}</Text>
+          {/* a one-off scratch folder shows as its chip: the dated name wrapped the line */}
+          {withTag && <Text color={projectColor(s.project)} wrap="truncate-end">{projectLabel(chipOf(s.project))}</Text>}
           <Text dimColor>{ago(now - s.last)}</Text>
           {/* quick marks without unfolding: done, park (undo: the card's Auto button) */}
           <Button key={`rd-${s.id}`} plain dimColor onPress={() => background($, mark($, s.id, 'done', s.title))}>✓</Button>
@@ -1178,47 +1179,75 @@ export const register: Register = on => {
       )
     }
 
-    const section = (key: string, title: string, items: Sess[], color?: string, withState = false, asRows = false) => {
+    // "Show 9 more" when that is all of them, "Show 10 more of 23" when more stay folded
+    const moreWord = (total: number, limit: number) => {
+      const rest = total - limit
+      return rest > 10 ? `Show 10 more of ${rest}` : `Show ${rest} more`
+    }
+    const short = (t: string, n: number) => (t.length > n ? `${t.slice(0, n - 1)}…` : t)
+    // A section: its heading (a coloured mark, the name, the count and a quiet
+    // note), then cards, or lines in one soft card. `byTime` lists strictly newest
+    // first (the by-project order); `project` set, the lines leave out the tag.
+    type SectionOpts = { note?: string; byTime?: boolean; project?: string; foldable?: boolean }
+    const section = (key: string, title: string, items: Sess[], color?: string, withState = false, asRows = false, opts: SectionOpts = {}) => {
       // a subsession whose parent is in this same list shows nested under it, not twice
-      const list = topLevel(items)
+      const top = topLevel(items)
+      const list = opts.byTime ? [...top].sort((a, b) => b.last - a.last) : top
       if (list.length === 0) return null
       const limit = ui.limits[key] ?? (asRows ? 8 : SHOWN)
+      const more = list.length > limit && (
+        <Box marginTop={asRows ? 0 : 0}>
+          <Button key={`more-${key}`} variant="secondary" label={moreWord(list.length, limit)}
+            onPress={() => setUi(u => ({ ...u, limits: { ...u.limits, [key]: limit + 10 } }))} />
+        </Box>
+      )
       return (
         <Box key={`s-${key}`} flexDirection="column" marginBottom={1}>
-          {/* the label in small capitals; a quoted search query keeps its own case */}
-          <Text bold={color !== undefined} color={color} dimColor={color === undefined}>
-            {title.replace(/^[^"]*/, m => m.toUpperCase())} · {list.length}
-          </Text>
+          <Box flexDirection="row" gap={1} alignItems="center">
+            <Text color={color ?? SEEN}>▎</Text>
+            <Text>
+              <Text bold color={color}>{title}</Text>
+              <Text dimColor> {list.length}{opts.note ? ` · ${opts.note}` : ''}</Text>
+            </Text>
+            {opts.foldable && (
+              <Button key={`hide-${key}`} plain onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, [key]: false } }))}>
+                <Text dimColor>fold ▴</Text>
+              </Button>
+            )}
+          </Box>
           {/* quiet sessions: one soft card per section holding a line each (an
               unfolded one opens as its own card in place) */}
           {asRows
             ? (
               <Box flexDirection="column" borderStyle="round" borderColor={BORDER} paddingX={1}>
-                {list.slice(0, limit).map(s => row(s))}
-                {list.length > limit && (
-                  <Button key={`more-${key}`} plain onPress={() => setUi(u => ({ ...u, limits: { ...u.limits, [key]: limit + 10 } }))}>
-                    <Text dimColor>show {Math.min(10, list.length - limit)} more of {list.length - limit}</Text>
-                  </Button>
-                )}
+                {list.slice(0, limit).map(s => row(s, opts.project === undefined))}
+                {more}
               </Box>
             )
             : list.slice(0, limit).map(s => card(s, withState))}
-          {!asRows && list.length > limit && (
-            <Button key={`more-${key}`} plain onPress={() => setUi(u => ({ ...u, limits: { ...u.limits, [key]: limit + 10 } }))}>
-              <Text dimColor>show {Math.min(10, list.length - limit)} more of {list.length - limit}</Text>
-            </Button>
-          )}
+          {!asRows && more}
         </Box>
       )
     }
 
-    const folded = (key: string, title: string, list: Sess[], asRows = true) => {
-      if (list.length === 0) return null
-      if (ui.shown[key]) return section(key, title, list, undefined, false, asRows)
+    // Quiet sections fold into one row of buttons; an unfolded one is drawn below
+    // that row as a section, with "fold ▴" to put it back.
+    type Fold = { key: string; title: string; list: Sess[]; asRows?: boolean }
+    const foldRow = (folds: Fold[]) => {
+      const present = folds.filter(f => f.list.length > 0)
+      if (present.length === 0) return null
       return (
-        <Button key={`show-${key}`} plain onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, [key]: true } }))}>
-          <Text dimColor>{title} · {list.length} ›</Text>
-        </Button>
+        <Box flexDirection="column">
+          {present.some(f => !ui.shown[f.key]) && (
+            <Box flexDirection="row" flexWrap="wrap" gap={1} marginBottom={1}>
+              {present.filter(f => !ui.shown[f.key]).map(f => (
+                <Button key={`show-${f.key}`} variant="secondary" label={`${f.title} · ${f.list.length} ▾`}
+                  onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, [f.key]: true } }))} />
+              ))}
+            </Box>
+          )}
+          {present.filter(f => ui.shown[f.key]).map(f => section(f.key, f.title, f.list, undefined, false, f.asRows ?? true, { foldable: true }))}
+        </Box>
       )
     }
 
@@ -1299,28 +1328,28 @@ export const register: Register = on => {
           </Box>
         )}
         {/* two orders of the same sessions: by what they need of you, or by project */}
-        <Box flexDirection="row" gap={1} marginBottom={1}>
-          <Text dimColor>Order:</Text>
-          <Button key="by-state" plain onPress={() => setUi(u => ({ ...u, boardBy: 'state' }))}>
-            <Text bold={ui.boardBy !== 'project'} dimColor={ui.boardBy === 'project'}>by state</Text>
-          </Button>
-          <Text dimColor>·</Text>
-          <Button key="by-project" plain onPress={() => setUi(u => ({ ...u, boardBy: 'project' }))}>
-            <Text bold={ui.boardBy === 'project'} dimColor={ui.boardBy !== 'project'}>by project</Text>
-          </Button>
+        {/* drawn as the view buttons are: a plain button's text styling is not shown on the desktop */}
+        <Box flexDirection="row" gap={1} marginBottom={1} alignItems="center">
+          <Text dimColor>Order</Text>
+          <Button key="by-state" variant={ui.boardBy !== 'project' ? 'primary' : 'secondary'} label="By state"
+            onPress={() => setUi(u => ({ ...u, boardBy: 'state' }))} />
+          <Button key="by-project" variant={ui.boardBy === 'project' ? 'primary' : 'secondary'} label="By project"
+            onPress={() => setUi(u => ({ ...u, boardBy: 'project' }))} />
         </Box>
         {ui.boardBy === 'project' ? byProject() : (
           <Box flexDirection="column">
             {/* cards where you act; one quiet line each for the rest */}
             {section('need', 'Needs you', groups.need, ACCENT)}
-            {folded('waiting', 'Still waiting on you, 1-7 days', groups.waiting, false)}
-            {section('working', 'Working', groups.working, undefined, false, true)}
-            {section('today', 'Today, not touched by you yet', groups.today, undefined, false, true)}
+            {foldRow([{ key: 'waiting', title: 'Still waiting on you, 1-7 days', list: groups.waiting, asRows: false }])}
+            {section('working', 'Working', groups.working, WORKING, false, true)}
+            {section('today', 'Today', groups.today, undefined, false, true, { note: 'not touched by you yet' })}
             {section('week', 'Earlier this week', groups.week, undefined, false, true)}
-            {folded('good', 'Good enough', groups.good, false)}
-            {folded('earlier', 'Earlier this month', groups.earlier)}
-            {folded('done', 'Done', groups.done)}
-            {folded('parked', 'Parking lot', groups.parked)}
+            {foldRow([
+              { key: 'good', title: 'Good enough', list: groups.good, asRows: false },
+              { key: 'earlier', title: 'Earlier this month', list: groups.earlier },
+              { key: 'done', title: 'Done', list: groups.done },
+              { key: 'parked', title: 'Parking lot', list: groups.parked },
+            ])}
           </Box>
         )}
       </Box>
@@ -1338,9 +1367,12 @@ export const register: Register = on => {
       const order = [...byChip.entries()].sort((a, b) => b[1][0].last - a[1][0].last)
       return (
         <Box flexDirection="column">
-          {order.map(([p, list]) => section(`proj-${p}`, `${projectLabel(p)}, ${ago(now - list[0].last)} ago`, list, projectColor(p), false, true))}
-          {folded('done', 'Done', groups.done)}
-          {folded('parked', 'Parking lot', groups.parked)}
+          {order.map(([p, list]) => section(`proj-${p}`, projectLabel(p), list, projectColor(p), false, true,
+            { note: `active ${ago(now - list[0].last)} ago`, byTime: true, project: p }))}
+          {foldRow([
+            { key: 'done', title: 'Done', list: groups.done },
+            { key: 'parked', title: 'Parking lot', list: groups.parked },
+          ])}
         </Box>
       )
     }
@@ -1498,19 +1530,14 @@ export const register: Register = on => {
           <Box flexDirection="row" gap={1} alignItems="center" flexShrink={0}>
             {/* back and forward through the sessions you were in */}
             {backTo && (
-              <Button key="trail-back" plain onPress={() => background($, stepTrail($, 1, here?.id, recentTrail))}>
-                <Text dimColor>‹ {(byId.get(backTo ?? '')?.title ?? '').slice(0, narrow ? 12 : 18)}</Text>
-              </Button>
+              <Button key="trail-back" variant="secondary" onPress={() => background($, stepTrail($, 1, here?.id, recentTrail))}
+                label={`‹ ${short(byId.get(backTo ?? '')?.title ?? '', narrow ? 14 : 22)}`} />
             )}
             {trail && trail.pos > 0 && (
-              <Button key="trail-forward" plain onPress={() => background($, stepTrail($, -1, here?.id, recentTrail))}>
-                <Text dimColor>›</Text>
-              </Button>
+              <Button key="trail-forward" variant="secondary" label="›" onPress={() => background($, stepTrail($, -1, here?.id, recentTrail))} />
             )}
             {ix.isLoading && Svg && <Svg source={PULSE_WORKING} alt="indexing" width={12} height={12} isInteractive />}
-            <Button key="refresh" plain onPress={() => background($, refresh($))}>
-              <Text dimColor>{ix.isLoading ? 'indexing…' : 'refresh'}</Text>
-            </Button>
+            <Button key="refresh" variant="secondary" label={ix.isLoading ? 'Indexing…' : '↻ Refresh'} onPress={() => background($, refresh($))} />
           </Box>
         </Box>
         <Box flexDirection="row" gap={1} alignItems="center">
