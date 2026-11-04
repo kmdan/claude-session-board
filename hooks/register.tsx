@@ -975,9 +975,11 @@ export const register: Register = on => {
     const card = (s: Sess, withState = false, depth = 0, path = s.id) => {
       const state = st(s)
       const isOpen = ui.open === path || (depth === 0 && ui.view === 'focus' && ui.focus === s.id)
-      const waits = state === 'need' || state === 'waiting'
-      const meta = [waits ? `waiting ${ago(now - s.last)}` : ago(now - s.last)]
-      if (withState) meta.unshift(stateWord[state])
+      // The grey line says only what the dot, border and corner do not: a mark you
+      // set, todos, what its subsessions do, then what the session is about (the
+      // app's own one-line status). Its age sits in the corner, as on a line.
+      const meta: string[] = []
+      if (withState && ['good', 'done', 'parked'].includes(state)) meta.push(stateWord[state])
       // only what matters now: file, media and page counts are on the card's tabs
       const asks = openPages(s)
       const askCount = asks.reduce((sum, p) => sum + p.qs.length, 0)
@@ -996,6 +998,8 @@ export const register: Register = on => {
       if (kidsReported) meta.push(`↩ ${kidsReported} report${kidsReported > 1 ? 's' : ''} in`)
       if (kidsWorking) meta.push(`${kidsWorking} sub working`)
       if (kidsAsking) meta.push(`${kidsAsking} sub asks you`)
+      const about = s.detail.trim()
+      if (about) meta.push(about)
       // a subsession's way up: a button to its parent's card, drawn under the meta line
       const parent = s.parent && depth === 0 ? byId.get(s.parent) : undefined
       const clash = isOpen ? overlaps(s, all, marks, now) : []
@@ -1019,7 +1023,6 @@ export const register: Register = on => {
         setUi(u => ({ ...u, open: u.open === path ? '' : path, tab: '' }))
         if (isUnseen(s)) background($, markSeen($, s.id))
       }
-      const unseen = isUnseen(s)
       const showNeeds = (isOpen || state === 'need') && s.needs !== ''
       // one dot, a traffic light: brown pulse working, still green done and not seen, then grey
       const dots = [
@@ -1037,6 +1040,7 @@ export const register: Register = on => {
             {!(depth > 0 && s.parent && byId.get(s.parent)?.project === s.project)
               && <Text color={projectColor(s.project)}>● {narrow && projectLabel(s.project).length > 12 ? `${projectLabel(s.project).slice(0, 11)}…` : projectLabel(s.project)}</Text>}
           </Text>
+          <Text dimColor>{ago(now - s.last)}</Text>
           {/* one click to the session itself; the title only unfolds the card */}
           {!(here && s.id === here.id) && (
             <Button key={`go-${path}`} plain onPress={() => background($, openSession($, s.id))}>
@@ -1068,11 +1072,12 @@ export const register: Register = on => {
             </Box>
             {corner}
           </Box>
-          <Button key={`tm-${path}`} plain onPress={toggleCard}>
-            {unseen && <Text color={READY}>unseen · </Text>}
-            {askCount > 0 && <Text color={ACCENT}>? {askCount}</Text>}
-            <Text dimColor>{askCount ? ` question${askCount > 1 ? 's' : ''} · ` : ''}{meta.join(' · ')}</Text>
-          </Button>
+          {(askCount > 0 || meta.length > 0) && (
+            <Button key={`tm-${path}`} plain onPress={toggleCard}>
+              {askCount > 0 && <Text color={ACCENT}>? {askCount}</Text>}
+              <Text dimColor>{askCount ? ` question${askCount > 1 ? 's' : ''}${meta.length ? ' · ' : ''}` : ''}{meta.join(' · ')}</Text>
+            </Button>
+          )}
           {showNeeds && (
             <Button key={`tn-${path}`} plain onPress={toggleCard}>
               <Text color={ACCENT}>→ {s.needs}</Text>
@@ -1147,6 +1152,7 @@ export const register: Register = on => {
     // One quiet line for a session you need not act on (working, moved today,
     // earlier): its state dot, its title, project and age. A click unfolds it
     // into its full card in place. Cards stay for what waits on you.
+    const rowAsks = (s: Sess) => openPages(s).reduce((sum, p) => sum + p.qs.length, 0)
     const row = (s: Sess, withTag = true) => {
       if (ui.open === s.id) return card(s, true)
       const cs = st(s)
@@ -1166,6 +1172,11 @@ export const register: Register = on => {
               {kids > 0 && <Text dimColor>  +{kids}{reports ? ` ↩${reports}` : ''}</Text>}
             </Button>
           </Box>
+          {/* what a card would flag, in a word: open questions, or the session waits on you
+              (beside the button: the desktop draws a button's text in its own colour) */}
+          {rowAsks(s) > 0
+            ? <Text color={ACCENT}>? {rowAsks(s)}</Text>
+            : isAsking(s) && !isWorking(s, now) && ['need', 'waiting'].includes(cs) && <Text color={ACCENT}>asks you</Text>}
           {/* a one-off scratch folder shows as its chip: the dated name wrapped the line */}
           {withTag && <Text color={projectColor(s.project)} wrap="truncate-end">{projectLabel(chipOf(s.project))}</Text>}
           <Text dimColor>{ago(now - s.last)}</Text>

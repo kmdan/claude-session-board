@@ -521,8 +521,9 @@ test('the board switches to by project: a section per project, the project last 
   expect(webapp).toBeDefined()
   expect(api).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeUndefined()
-  // each session is a line under its project
+  // each session is a line under its project; one with open questions says how many
   expect(await ui.find({ key: 'rd-Docs audit' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^\? 2$/ })).toBeDefined()
   await ui.press({ key: 'by-state' })
   expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeDefined()
   await ui.unmount()
@@ -769,7 +770,8 @@ test('an open card lists related sessions, and one opens on its own', async ($, 
   await ui.press({ key: 'tab-Parser rewrite-related' })
   await ui.press({ key: 'r-Parser rewrite-Parser edge cases' })
   expect(await ui.find({ type: 'Text', text: /back to the board/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^\s*still waiting/ })).toBeDefined()
+  // the focused card is the subsession's own
+  expect(await ui.find({ key: 't-Parser edge cases' })).toBeDefined()
   await ui.unmount()
 })
 
@@ -777,7 +779,8 @@ test('a session that finished since you last looked says unseen, until you open 
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   // Parser rewrite finished an hour ago and was never looked at; its subsession asks too
-  expect(await ui.find({ type: 'Text', text: /unseen · / })).toBeDefined()
+  // said by the border and the header count, not a word on the card
+  expect(await ui.find({ type: 'Text', text: /unseen · / })).toBeUndefined()
   expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toMatch(/· 2 unseen$/)
   // its whole card is outlined green, not only its dot
   expect((await ui.find({ key: 'c-Parser rewrite' }))?.props?.borderColor).toBe('#5fae6e')
