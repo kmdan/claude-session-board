@@ -69,12 +69,12 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
         {asRows
           ? (
             <Box flexDirection="column" borderStyle="round" borderColor={BORDER} paddingX={1}>
-              {list.slice(0, limit).map(s => (opts.project === undefined ? row(s) : (
+              {list.slice(0, limit).map(s => (
                 <Box key={`fam-${s.id}`} flexDirection="column">
-                  {row(s, false)}
+                  {row(s, opts.project === undefined)}
                   {subLines(s)}
                 </Box>
-              )))}
+              ))}
               {more}
             </Box>
           )

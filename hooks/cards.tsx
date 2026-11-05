@@ -141,74 +141,68 @@ export function makeCards($: $T, d: Drawing) {
     )
   }
 
-  // A session's subsessions as compact live rows under its card: state dot,
-  // title, state and age. A row opens into the child's own card in place.
-  // `path` names this instance (a session may show at the top of one
-  // section and nested under its parent too), so opening one opens only it.
-  // Parked and done subsessions fold into one "· N parked" line; one that asks
-  // you is drawn as a small card of its own right on the rail (its question, its
-  // needs line), so a family reads as one block.
+  // One subsession as a short line: its dot, its title (which opens it), what it
+  // does and its age. The same line under a card, an open card and a quiet line.
+  // `path` names the parent's place on the board: a parent may be drawn twice.
+  const subLine = (c: Sess, path: string, isLast: boolean) => {
+    const working = isWorking(c, now)
+    const asks = !working && asksYou(c)
+    const cs = st(c)
+    const word = working ? 'working' : asks ? 'asks you' : hasReported(c) ? 'reported'
+      : cs === 'done' || cs === 'parked' ? stateWord[cs] : ''
+    return (
+      <Box key={`sb-${path}>${c.id}`} flexDirection="row" alignItems="center" marginLeft={2} minWidth={0} overflow="hidden">
+        <Text dimColor>{isLast ? '└ ' : '├ '}</Text>
+        {/* drawn beside the button: a button holds only text */}
+        {working && Svg
+          ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
+          : <Text color={isUnanswered(c) ? READY : DOT[cs]}>●</Text>}
+        <Button key={`sl-${path}>${c.id}`} plain onPress={() => background($, openSession($, c.id))}>
+          <Text> {c.title}</Text>
+        </Button>
+        <Text color={asks ? ACCENT : undefined} dimColor={!asks}> {word ? `${word} · ` : ''}{ago(now - c.last)}</Text>
+      </Box>
+    )
+  }
+
+  // The subsessions worth a line unasked: those asking you or working always, then
+  // others that moved in the last day, up to four in all, newest first.
+  const liveKids = (s: Sess) => {
+    const live = (kidsOf.get(s.id) ?? []).filter(c => asksYou(c) || isWorking(c, now) || now - c.last < 86_400_000)
+    const isUrgent = (c: Sess) => asksYou(c) || isWorking(c, now)
+    const room = Math.max(0, 4 - live.filter(isUrgent).length)
+    const others = live.filter(c => !isUrgent(c)).slice(0, room)
+    return live.filter(c => isUrgent(c) || others.includes(c))
+  }
+
+  // Under a card, open or not: the live subsessions as lines, the rest behind
+  // one "N more". Only the subsession you are in stays a card (under Here), for
+  // its marks and tabs: there is no other way to reach them from where you are.
   const children = (s: Sess, depth: number, path: string) => {
     const kids = kidsOf.get(s.id) ?? []
     if (kids.length === 0 || depth >= 3) return null
-    const allShown = ui.shown[`kids-${path}`]
-    const isQuiet = (c: Sess) => ['parked', 'done'].includes(st(c)) && !isWorking(c, now)
-    const lively = kids.filter(c => !isQuiet(c))
-    // under Here, the subsession you are in is a card on its main session's rail, first
     const isHereKid = (c: Sess) => path.startsWith('@') && !!here && c.id === here.id
-    const asCard = (c: Sess) => asksYou(c) || isHereKid(c)
-    const asking = [...kids.filter(isHereKid), ...lively.filter(c => asksYou(c) && !isHereKid(c))]
-    const rest = lively.filter(c => !asCard(c))
-    const quietKids = kids.filter(c => isQuiet(c) && !isHereKid(c))
-    const visible = allShown ? [...asking, ...rest, ...quietKids] : [...asking, ...rest.slice(0, 4)]
-    const folded = kids.length - visible.length
-    const quietCount = quietKids.length
+    const hereKid = kids.find(isHereKid)
+    const others = kids.filter(c => !isHereKid(c))
+    const lines = ui.shown[`kids-${path}`] ? others : liveKids(s).filter(c => !isHereKid(c))
+    const folded = others.length - lines.length
+    const hasMore = folded > 0 && depth === 0
+    if (!hereKid && lines.length === 0 && !hasMore) return null
     return (
-      <Box flexDirection="column" marginTop={1} marginLeft={1}>
-        {visible.map((c, i) => {
-          const cPath = `${path}>${c.id}`
-          const isLast = i === visible.length - 1 && folded === 0
-          if (ui.open === cPath || asCard(c)) {
-            return (
-              // indented, no connector (beside a card it floated mid-height); it may
-              // shrink, so a long needs line is cut with "…" and never pushes past the edge
-              <Box key={`kb-${cPath}`} flexDirection="column" flexShrink={1} minWidth={0} overflow="hidden" marginLeft={1}>
-                {card(c, true, depth + 1, cPath)}
-              </Box>
-            )
-          }
-          const cs = st(c)
-          const grand = (kidsOf.get(c.id) ?? []).length
-          // the rail says how each subsession relates to you: working, asks you
-          // (its own card is up in Needs you), reported to this session, or quiet
-          const working = isWorking(c, now)
-          const asks = !working && asksYou(c)
-          const reported = !working && !asks && hasReported(c)
-          const quiet = reported || cs === 'done' || cs === 'parked'
-          // "needs you" on a subsession you only touched today read as an ask: it is not one
-          const word = working ? 'working' : asks ? 'asks you' : reported ? 'reported'
-            : cs === 'need' ? 'touched today' : stateWord[cs]
-          return (
-            <Box key={`kr-${cPath}`} flexDirection="row" alignItems="center" minWidth={0} overflow="hidden">
-              <Text dimColor>{isLast ? '└ ' : '├ '}</Text>
-              {/* drawn beside the button: a button holds only text */}
-              {working && Svg
-                ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
-                : reported
-                    ? <Text dimColor>↩</Text>
-                    : <Text color={isUnanswered(c) ? READY : DOT[cs]}>●</Text>}
-              <Button key={`k-${cPath}`} plain onPress={() => setUi(u => ({ ...u, open: cPath, tab: '' }))}>
-                <Text dimColor={quiet}> {c.title}</Text>
-                <Text dimColor={!asks} color={asks ? ACCENT : undefined}> {word} · {ago(now - c.last)}{grand ? ` · +${grand}` : ''}</Text>
-              </Button>
-            </Box>
-          )
-        })}
-        {/* on a nested card, parked-only subsessions are not worth a line */}
-        {folded > 0 && !(depth > 0 && folded === quietCount) && (
-          <Button key={`km-${path}`} plain onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, [`kids-${path}`]: true } }))}>
-            <Text dimColor>└ {folded === quietCount ? `${quietCount} parked or done` : `${folded} more subsessions${quietCount ? ` (${quietCount} parked or done)` : ''}`}</Text>
-          </Button>
+      <Box flexDirection="column">
+        {hereKid && (
+          // it may shrink, so a long needs line is cut with "…" and never pushes past the edge
+          <Box key={`kb-${path}>${hereKid.id}`} flexDirection="column" flexShrink={1} minWidth={0} overflow="hidden" marginLeft={2}>
+            {card(hereKid, true, depth + 1, `${path}>${hereKid.id}`)}
+          </Box>
+        )}
+        {lines.map((c, i) => subLine(c, path, i === lines.length - 1 && !hasMore))}
+        {hasMore && (
+          <Box marginLeft={2}>
+            <Button key={`km-${path}`} plain onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, [`kids-${path}`]: true } }))}>
+              <Text dimColor>└ {folded} more</Text>
+            </Button>
+          </Box>
         )}
       </Box>
     )
@@ -238,15 +232,7 @@ export function makeCards($: $T, d: Drawing) {
       const dueNow = openTodos.filter(n => ['overdue', 'today'].includes(dueBucket(n.due, now))).length
       meta.push(`${openTodos.length} todo${openTodos.length > 1 ? 's' : ''}${dueNow ? ` (${dueNow} due)` : ''}`)
     }
-    // what its subsessions are doing, said on the parent too
-    const kidsNow = kidsOf.get(s.id) ?? []
-    const kidsWorking = kidsNow.filter(c => isWorking(c, now)).length
-    const kidsAsking = kidsNow.filter(asksYou).length
-    const kidsReported = kidsNow.filter(hasReported).length
-    // reports land here: read them in this session, not in the subsessions
-    if (kidsReported) meta.push(`↩ ${kidsReported} report${kidsReported > 1 ? 's' : ''} in`)
-    if (kidsWorking) meta.push(`${kidsWorking} sub working`)
-    if (kidsAsking) meta.push(`${kidsAsking} sub asks you`)
+    // what its subsessions are doing is on their lines under the card
     const about = s.detail.trim()
     if (about) meta.push(about)
     // a subsession's way up: a button to its parent's card, drawn under the meta line
@@ -399,28 +385,12 @@ export function makeCards($: $T, d: Drawing) {
     )
   }
 
-  // By project, under a session's line: its subsessions that are live (asking
-  // you, working, or moved in the last day), one short line each; the title
-  // opens the subsession. The rest stay in the line's "+N".
+  // Under a session's quiet line: its live subsessions. The rest stay in the
+  // line's "+N" (an unfolded line is a card, which draws its own).
   const subLines = (s: Sess) => {
     if (ui.open === s.id) return null
-    const lines = (kidsOf.get(s.id) ?? []).filter(c => asksYou(c) || isWorking(c, now) || now - c.last < 86_400_000).slice(0, 4)
-    return lines.map((c, i) => {
-      const working = isWorking(c, now)
-      const word = working ? 'working' : asksYou(c) ? 'asks you' : hasReported(c) ? 'reported' : ''
-      return (
-        <Box key={`sl-${s.id}>${c.id}`} flexDirection="row" alignItems="center" marginLeft={2} minWidth={0} overflow="hidden">
-          <Text dimColor>{i === lines.length - 1 ? '└ ' : '├ '}</Text>
-          {working && Svg
-            ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
-            : <Text color={isUnanswered(c) ? READY : DOT[st(c)]}>●</Text>}
-          <Button key={`sl-${c.id}`} plain onPress={() => background($, openSession($, c.id))}>
-            <Text> {c.title}</Text>
-          </Button>
-          <Text color={asksYou(c) ? ACCENT : undefined} dimColor={!asksYou(c)}> {word ? `${word} · ` : ''}{ago(now - c.last)}</Text>
-        </Box>
-      )
-    })
+    const lines = liveKids(s)
+    return lines.map((c, i) => subLine(c, s.id, i === lines.length - 1))
   }
 
   // One quiet line for a session you need not act on (working, moved today,

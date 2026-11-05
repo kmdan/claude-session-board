@@ -219,7 +219,7 @@ test('timing at a real size: 660 sessions, first draw, a search keystroke, unfol
   }
 })
 
-test('a subsession that just asked is a card on its main card, which says so and comes first', async ($, on) => {
+test('a subsession that just asked is a short line under its main card, and opens directly', async ($, on) => {
   const child = INDEX.sessions[1] as any
   const saved = { last: child.last }
   child.last = Date.now() // Parser edge cases (a child of Parser rewrite) asks right now
@@ -227,19 +227,21 @@ test('a subsession that just asked is a card on its main card, which says so and
   try {
     await start($, on)
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-    // its main session is in Needs you too: it is a small card on that card's rail, not a second card
-    const nested = 't-Parser rewrite>Parser edge cases'
+    // its main session is in Needs you too: it is a line under that card, not a second card
+    const nested = 'sl-Parser rewrite>Parser edge cases'
     expect(await ui.find({ key: nested })).toBeDefined()
     expect(await ui.find({ key: 't-Parser edge cases' })).toBeUndefined()
-    expect(await ui.find({ type: 'Text', text: /1 sub asks you/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /asks you · / })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /sub asks you/ })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: /^Needs you 1(?!\d)/ })).toBeDefined()
-    // nested, it needs no "Parent ›" line: it sits under its parent
+    // it needs no "Parent ›" line: it sits under its parent
     expect(await ui.find({ type: 'Text', text: /^Parser rewrite ›$/ })).toBeUndefined()
-    // opening it marks it seen; it stays where it is
-    await ui.press({ key: nested })
-    expect(await ui.find({ key: 'o-Parser rewrite>Parser edge cases' })).toBeDefined()
-    await ui.press({ key: nested })
+    // the line stays the same on the open card; a click opens the subsession itself
+    await ui.press({ key: 't-Parser rewrite' })
+    expect(await ui.find({ key: 'o-Parser rewrite' })).toBeDefined()
     expect(await ui.find({ key: nested })).toBeDefined()
+    await ui.press({ key: nested })
+    expect(ran.some(a => a.join(' ').endsWith('epitaxy/Parser edge cases'))).toBe(true)
     await ui.unmount()
   } finally {
     child.last = saved.last
@@ -254,13 +256,12 @@ test('a subsession that only reported back stays under its parent, which says so
   try {
     await start($, on)
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-    expect(await ui.find({ type: 'Text', text: /↩ 1 report in/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /reported · / })).toBeDefined()
     // not asking you: out of Needs you (only its parent there), and not listed on its own
-    // anywhere: it is a row on its main session's rail
+    // anywhere: it is a line under its main session
     expect(await ui.find({ type: 'Text', text: /^Needs you 1(?!\d)/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^Today \d/ })).toBeUndefined()
-    expect(await ui.find({ key: 'k-Parser rewrite>Parser edge cases' })).toBeDefined()
+    expect(await ui.find({ key: 'sl-Parser rewrite>Parser edge cases' })).toBeDefined()
     await ui.press({ key: 't-Parser rewrite' })
     expect(await ui.find({ key: 'o-Parser rewrite' })).toBeDefined()
     await ui.unmount()
@@ -512,9 +513,9 @@ test('the watched session is listed once, under Here, and the header counts what
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ key: 't-@Parser rewrite' })).toBeDefined()
   expect(await ui.find({ key: 't-Parser rewrite' })).toBeUndefined()
-  // Parser rewrite is Here, so 0 need you; its waiting child is on the Here card's rail, not counted again
+  // Parser rewrite is Here, so 0 need you; its waiting child is a line on the Here card, not counted again
   expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 0 waiting · 1 working · 0 good enough · ? 1 · 1 unseen')
-  expect(await ui.find({ key: 't-@Parser rewrite>Parser edge cases' })).toBeDefined()
+  expect(await ui.find({ key: 'sl-@Parser rewrite>Parser edge cases' })).toBeDefined()
   await ui.unmount()
 })
 
@@ -608,7 +609,7 @@ test('the board switches to by project: a section per project, the project last 
   await ui.press({ key: 'u-Docs audit' })
   expect(await ui.find({ key: 'c-Docs audit' })).toBeDefined()
   // a subsession that asks you is a short line under its main session's line, and opens directly
-  expect(await ui.find({ key: 'sl-Parser edge cases' })).toBeDefined()
+  expect(await ui.find({ key: 'sl-Parser rewrite>Parser edge cases' })).toBeDefined()
   // its ▾ (or its title) folds the card back into its line
   await ui.press({ key: 'f-Docs audit' })
   expect(await ui.find({ key: 'c-Docs audit' })).toBeUndefined()
@@ -750,19 +751,35 @@ test('a quick note is kept, and goes to its session as a prompt or as a subsessi
   await ui.unmount()
 })
 
-test('subsessions show live under their parent card and open in place', async ($, on) => {
-  await start($, on)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+test('subsessions are the same short lines under cards and under by-state lines; the quiet ones fold', async ($, on) => {
+  const saved = INDEX.sessions
+  INDEX.sessions = [
+    ...saved,
+    sess('Docs spelling', { project: 'api', parent: 'Docs audit' }),
+    sess('Parser old try', { last: NOW - 40 * 24 * H, parent: 'Parser rewrite' }),
+  ]
+  for (const k of Object.keys(disk)) delete disk[k]
+  try {
+    await start($, on)
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  // Parser edge cases is Parser rewrite's child and waits on you (blocked): a small card on the rail
-  expect(await ui.find({ key: 't-Parser rewrite>Parser edge cases' })).toBeDefined()
-  await ui.press({ key: 't-Parser rewrite>Parser edge cases' })
-  // it unfolds in place, nested: its buttons carry the nested path
-  expect(await ui.find({ key: 'o-Parser rewrite>Parser edge cases' })).toBeDefined()
-  // and it still has its own place in "Still waiting", a different section
-  await ui.press({ key: 'show-waiting' })
-  expect(await ui.find({ key: 't-Parser edge cases' })).toBeDefined()
-  await ui.unmount()
+    // Parser edge cases is Parser rewrite's child and waits on you (blocked): a line, in the card's rail
+    expect(await ui.find({ key: 'sl-Parser rewrite>Parser edge cases' })).toBeDefined()
+    // and it still has its own place in "Still waiting", a different section
+    await ui.press({ key: 'show-waiting' })
+    expect(await ui.find({ key: 't-Parser edge cases' })).toBeDefined()
+    // by state, a quiet line (Docs audit: working) has its subsession under it too
+    expect(await ui.find({ key: 'row-Docs audit' })).toBeDefined()
+    expect(await ui.find({ key: 'sl-Docs audit>Docs spelling' })).toBeDefined()
+    // a month-old subsession waits behind "N more", until asked for
+    expect(await ui.find({ key: 'sl-Parser rewrite>Parser old try' })).toBeUndefined()
+    await ui.press({ key: 'km-Parser rewrite' })
+    expect(await ui.find({ key: 'sl-Parser rewrite>Parser old try' })).toBeDefined()
+    await ui.unmount()
+  } finally {
+    INDEX.sessions = saved
+    for (const k of Object.keys(disk)) delete disk[k]
+  }
 })
 
 test('the watched session is marked and pinned under Here; elsewhere there is no Here', async ($, on) => {
