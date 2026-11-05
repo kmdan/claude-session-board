@@ -209,12 +209,12 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
         {/* drawn as the view buttons are: a plain button's text styling is not shown on the desktop */}
         <Box flexDirection="row" gap={1} marginBottom={1} alignItems="center">
           <Text dimColor>Order</Text>
-          <Button key="by-state" variant={ui.boardBy !== 'project' ? 'primary' : 'secondary'} label="By state"
+          <Button key="by-state" variant={ui.boardBy === 'state' ? 'primary' : 'secondary'} label="By state"
             onPress={() => setUi(u => ({ ...u, boardBy: 'state' }))} />
-          <Button key="by-project" variant={ui.boardBy === 'project' ? 'primary' : 'secondary'} label="By project"
+          <Button key="by-project" variant={ui.boardBy !== 'state' ? 'primary' : 'secondary'} label="By project"
             onPress={() => setUi(u => ({ ...u, boardBy: 'project' }))} />
         </Box>
-        {ui.boardBy === 'project' ? byProject() : (
+        {ui.boardBy !== 'state' ? byProject() : (
           <Box flexDirection="column">
             {/* cards where you act; one quiet line each for the rest */}
             {section('need', 'Needs you', groups.need, ACCENT)}

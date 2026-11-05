@@ -143,6 +143,10 @@ async function start($: any, on: any, store?: Record<string, unknown>, self?: st
   engine(on, store, self, ownClock)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.command.run({ command: 'board' })
+  // the board opens by project; most tests here are about the sections by state
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'by-state' })
+  await ui.unmount()
 }
 
 // full index runs only (not --search or --quick)
@@ -375,6 +379,19 @@ test('a session start opens the board; the first indexes, a second reads its sna
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(indexRuns()).toBe(before + 1)
   expect(Object.keys(disk).some(p => p.endsWith('snapshot.json'))).toBe(true)
+  await ui.unmount()
+})
+
+test('the board opens by project; By state switches to the sections', async ($, on) => {
+  engine(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ key: 'by-project' })).toMatchObject({ props: { variant: 'primary' } })
+  expect(await ui.find({ type: 'Text', text: /^webapp \d+ · active .* ago/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeUndefined()
+  await ui.press({ key: 'by-state' })
+  expect(await ui.find({ key: 'by-state' })).toMatchObject({ props: { variant: 'primary' } })
+  expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeDefined()
   await ui.unmount()
 })
 

@@ -122,7 +122,7 @@ export type Ui = {
   /** label filter of the Todos view; '' = all */
   label: string
   focus: string
-  /** the board's order: by what sessions need of you (the default), or by project, last edited first */
+  /** the board's order: by project, last edited first (the default), or by what sessions need of you */
   boardBy?: 'state' | 'project'
   /** the view a focus was opened from, so "back" returns there */
   from?: 'graph'
