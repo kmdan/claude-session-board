@@ -14,7 +14,7 @@ const KIND_MARK: Record<Media['k'], string> = { movie: '▶', image: '▣', page
 export function makeCards($: $T, d: Drawing) {
   const { Box, Text, Button, Input, Link } = d.table
   const {
-    Svg, narrow, ui, marks, notes, opening, answered, now, setUi, all, byId, kidsOf, here, find, chat, st,
+    Svg, narrow, ui, marks, notes, opening, answered, now, setUi, all, byId, kidsOf, here, hereChain, find, chat, st,
     isUnseen, isUnanswered, isFresh, hasReported, asksYou, isPageOpen, openPages, borderOf,
   } = d
 
@@ -144,14 +144,14 @@ export function makeCards($: $T, d: Drawing) {
   // One subsession as a short line: its dot, its title (which opens it), what it
   // does and its age. The same line under a card, an open card and a quiet line.
   // `path` names the parent's place on the board: a parent may be drawn twice.
-  const subLine = (c: Sess, path: string, isLast: boolean) => {
+  const subLine = (c: Sess, path: string, isLast: boolean, indent = 2) => {
     const working = isWorking(c, now)
     const asks = !working && asksYou(c)
     const cs = st(c)
     const word = working ? 'working' : asks ? 'asks you' : hasReported(c) ? 'reported'
       : cs === 'done' || cs === 'parked' ? stateWord[cs] : ''
     return (
-      <Box key={`sb-${path}>${c.id}`} flexDirection="row" alignItems="center" marginLeft={2} minWidth={0} overflow="hidden">
+      <Box key={`sb-${path}>${c.id}`} flexDirection="row" alignItems="center" marginLeft={indent} minWidth={0} overflow="hidden">
         <Text dimColor>{isLast ? '└ ' : '├ '}</Text>
         {/* drawn beside the button: a button holds only text */}
         {working && Svg
@@ -175,13 +175,38 @@ export function makeCards($: $T, d: Drawing) {
     return live.filter(c => isUrgent(c) || others.includes(c))
   }
 
+  // A session's subsessions and theirs, a line each, each level indented further.
+  // `skip`: those drawn as cards, which draw their own family.
+  const familyLines = (s: Sess, path: string, indent: number, skip: (c: Sess) => boolean): ReturnType<typeof subLine>[] => {
+    const kids = (kidsOf.get(s.id) ?? []).filter(c => !skip(c))
+    return kids.flatMap((c, i) => [
+      subLine(c, path, i === kids.length - 1, indent),
+      ...familyLines(c, `${path}>${c.id}`, indent + 2, skip),
+    ])
+  }
+
   // Under a card, open or not: the live subsessions as lines, the rest behind
-  // one "N more". Only the subsession you are in stays a card (under Here), for
-  // its marks and tabs: there is no other way to reach them from where you are.
+  // one "N more". Under Here the way down to you stays cards (for your marks and
+  // tabs, which have no other way in from where you are), and nothing is folded.
   const children = (s: Sess, depth: number, path: string) => {
     const kids = kidsOf.get(s.id) ?? []
-    if (kids.length === 0 || depth >= 3) return null
-    const isHereKid = (c: Sess) => path.startsWith('@') && !!here && c.id === here.id
+    // under Here, your whole family shows: all that is not archived, at every level
+    const isHereFamily = path.startsWith('@')
+    if (kids.length === 0 || (depth >= 3 && !isHereFamily)) return null
+    const isHereKid = (c: Sess) => isHereFamily && hereChain.includes(c)
+    if (isHereFamily) {
+      const hereKid = kids.find(isHereKid)
+      return (
+        <Box flexDirection="column">
+          {hereKid && (
+            <Box key={`kb-${path}>${hereKid.id}`} flexDirection="column" flexShrink={1} minWidth={0} overflow="hidden" marginLeft={2}>
+              {card(hereKid, true, depth + 1, `${path}>${hereKid.id}`)}
+            </Box>
+          )}
+          {familyLines(s, path, 2, isHereKid)}
+        </Box>
+      )
+    }
     const hereKid = kids.find(isHereKid)
     const others = kids.filter(c => !isHereKid(c))
     const lines = ui.shown[`kids-${path}`] ? others : liveKids(s).filter(c => !isHereKid(c))

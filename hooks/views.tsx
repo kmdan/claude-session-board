@@ -192,17 +192,16 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
   }
 
   const boardView = () => {
-    // A subsession you are in is drawn as the board draws its family: its main
-    // session's whole card, with the rail of siblings (asking, working, the
-    // rest) and your subsession as a card on it, first.
-    const hereParent = here?.parent ? byId.get(here.parent) : undefined
+    // A subsession you are in is drawn with its whole family, from the top: its
+    // main session's card, the way down to you as cards, everyone else as lines.
+    const hereTop = d.hereChain[0]
     return (
       <Box flexDirection="column">
         {all.length === 0 && <Text dimColor>{ix.isLoading ? 'Reading your sessions…' : ix.note}</Text>}
-        {here && (
+        {hereTop && (
           <Box key="s-here" flexDirection="column" marginBottom={1}>
             <Text dimColor>HERE</Text>
-            {card(hereParent ?? here, true, 0, `@${(hereParent ?? here).id}`)}
+            {card(hereTop, true, 0, `@${hereTop.id}`)}
           </Box>
         )}
         {/* two orders of the same sessions: by what they need of you, or by project */}

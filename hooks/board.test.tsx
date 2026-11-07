@@ -395,6 +395,36 @@ test('the board opens by project; By state switches to the sections', async ($, 
   await ui.unmount()
 })
 
+test('under Here your whole family shows from the top, at every level, however old; archived ones do not', async ($, on) => {
+  const saved = INDEX.sessions
+  const old = NOW - 20 * 24 * H
+  INDEX.sessions = [
+    sess('Top', { last: old }),
+    sess('Way down', { parent: 'Top' }),
+    sess('You', { parent: 'Way down' }),
+    sess('Your child', { parent: 'You', last: old }),
+    sess('Aunt', { parent: 'Top', last: old }),
+    sess('Cousin', { parent: 'Aunt', last: old }),
+    sess('Gone', { parent: 'Aunt', archived: true }),
+  ] as any
+  for (const k of Object.keys(disk)) delete disk[k]
+  try {
+    await start($, on, {}, 'cli-You')
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    expect(await ui.find({ key: 't-@Top' })).toBeDefined()
+    expect(await ui.find({ key: 't-@Top>Way down' })).toBeDefined()
+    expect(await ui.find({ key: 't-@Top>Way down>You' })).toBeDefined()
+    expect(await ui.find({ key: 'sl-@Top>Way down>You>Your child' })).toBeDefined()
+    expect(await ui.find({ key: 'sl-@Top>Aunt' })).toBeDefined()
+    expect(await ui.find({ key: 'sl-@Top>Aunt>Cousin' })).toBeDefined()
+    expect(await ui.find({ key: 'sl-@Top>Aunt>Gone' })).toBeUndefined()
+    await ui.unmount()
+  } finally {
+    INDEX.sessions = saved
+    for (const k of Object.keys(disk)) delete disk[k]
+  }
+})
+
 test('a session nobody is looking at opens no pane and writes no line in its chat, until a window attaches', async ($, on) => {
   engine(on)
   const before = opened
