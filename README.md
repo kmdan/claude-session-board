@@ -19,7 +19,9 @@ lot of sessions at once and lose track of them, ADHD brains included.
   was written in the last minute counts as **Working** and has a brown pulse:
   a turn in progress writes every few seconds, one waiting for you writes nothing.
   Only work pulses. A session that finished since you last looked is **unseen**:
-  a still green dot and a green border, until you open it here or in the app.
+  a green border, until you open it here or in the app. A **green dot** means it
+  asks you something (the app says so, or a question page is open); after two
+  quiet days it goes grey.
 - Every card: its status line, what it needs from you, and one tab at a time
   for its **media** (movies, images, HTML pages and published artifacts it made),
   **files** it wrote, **related** sessions and your **notes**.

@@ -15,7 +15,7 @@ export function makeCards($: $T, d: Drawing) {
   const { Box, Text, Button, Input, Link } = d.table
   const {
     Svg, narrow, ui, marks, notes, opening, answered, now, setUi, all, byId, kidsOf, here, hereChain, find, chat, st,
-    isUnseen, isUnanswered, isFresh, hasReported, asksYou, isPageOpen, openPages, borderOf,
+    isUnseen, waitsForYou, isFresh, hasReported, asksYou, isPageOpen, openPages, borderOf,
   } = d
 
   const mediaRow = (s: Sess, m: Media, withSession: boolean) => (
@@ -156,7 +156,7 @@ export function makeCards($: $T, d: Drawing) {
         {/* drawn beside the button: a button holds only text */}
         {working && Svg
           ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
-          : <Text color={isUnanswered(c) ? READY : DOT[cs]}>●</Text>}
+          : <Text color={waitsForYou(c) ? READY : DOT[cs]}>●</Text>}
         <Button key={`sl-${path}>${c.id}`} plain onPress={() => background($, openSession($, c.id))}>
           <Text> {c.title}</Text>
         </Button>
@@ -289,7 +289,7 @@ export function makeCards($: $T, d: Drawing) {
         ? (Svg
           ? <Svg key={`dw-${path}`} source={PULSE_WORKING} alt="working now" width={12} height={12} isInteractive />
           : <Text key={`dw-${path}`} color={WORKING}>●</Text>)
-        : <Text key={`ds-${path}`} color={isUnanswered(s) ? READY : DOT[state]}>●</Text>,
+        : <Text key={`ds-${path}`} color={waitsForYou(s) ? READY : DOT[state]}>●</Text>,
     ]
     const corner = (
       <Box flexDirection="row" gap={1} flexShrink={0}>
@@ -433,7 +433,7 @@ export function makeCards($: $T, d: Drawing) {
       <Box key={`row-${s.id}`} flexDirection="row" gap={1} alignItems="center">
         {(isWorking(s, now) || kidList.some(c => isWorking(c, now))) && Svg
           ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
-          : <Text color={isUnanswered(s) ? READY : DOT[cs]}>●</Text>}
+          : <Text color={waitsForYou(s) ? READY : DOT[cs]}>●</Text>}
         {/* ▸ unfolds the line into its card; the title itself opens the session */}
         <Button key={`u-${s.id}`} plain onPress={unfold}>▸</Button>
         <Box flexGrow={1} flexShrink={1}>

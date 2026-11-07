@@ -156,12 +156,15 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
   // board. What the app's notification announced and you have not opened yet.
   // A subsession only when it asks you; a closed or parked one never.
   // Two marks, two questions: the green BORDER is "not looked at yet" (goes when
-  // you look), the green DOT is "finished and not answered yet" (stays until you
-  // write in it, or mark it).
+  // you look), the green DOT is "it asks you something" (the app says so, or a
+  // question page is open). The dot fades after two days: a session quiet that
+  // long is taken as okay. "No message from you since it finished" can't be the
+  // test: a session always finishes after your message, so every one was green.
   const finishedForYou = (s: Sess) => !isWorking(s, now) && !s.archived && now - s.last < 7 * 86_400_000
     && (isAsking(s) || !s.parent) && !['done', 'parked', 'good'].includes(st(s))
   const isUnseen = (s: Sess) => finishedForYou(s) && Math.max(s.touched ?? 0, seen[s.id] ?? 0) < s.last
-  const isUnanswered = (s: Sess) => finishedForYou(s) && (s.replied ?? s.touched ?? 0) < s.last
+  const waitsForYou = (s: Sess) => finishedForYou(s) && now - s.last < 2 * 86_400_000
+    && (isAsking(s) || s.questions.some(isPageOpen))
   // Just finished a turn that needs you (the app notifies on it) and not seen since: it comes on top.
   // A subsession only when it asks YOU (blocked / ready for review): one that merely reported
   // back sends its report to its main session, which is where the attention goes.
@@ -247,7 +250,7 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
   return {
     table, Svg, bodyColumns, narrow, ix, ui, marks, notes, moved, opening, answered, seen, fullText, now, setUi,
     all, byId, byCli, kidsOf, here, hereChain, find, chat, st,
-    finishedForYou, isUnseen, isUnanswered, isFresh, hasReported, asksYou, isPageOpen, openPages, borderOf,
+    finishedForYou, isUnseen, waitsForYou, isFresh, hasReported, asksYou, isPageOpen, openPages, borderOf,
     inChip, inProject, listed, groups, topLevel, chips, allTodos, dueToday, asking, recentTrail, trail, backTo, unseenCount,
   }
 }

@@ -292,7 +292,7 @@ test('a session that just asked for you has a still green dot, not a pulse; only
     expect(await border()).toBe('#5fae6e')
     await ui.press({ key: 't-Parser rewrite' })
     await ui.press({ key: 't-Parser rewrite' })
-    // looked at: the green border goes; not answered yet: the green dot stays
+    // looked at: the green border goes; it still asks you: the green dot stays
     expect(await border()).not.toBe('#5fae6e')
     expect(await dot()).toBe('#5fae6e')
     await ui.unmount()
@@ -418,6 +418,36 @@ test('under Here your whole family shows from the top, at every level, however o
     expect(await ui.find({ key: 'sl-@Top>Aunt' })).toBeDefined()
     expect(await ui.find({ key: 'sl-@Top>Aunt>Cousin' })).toBeDefined()
     expect(await ui.find({ key: 'sl-@Top>Aunt>Gone' })).toBeUndefined()
+    await ui.unmount()
+  } finally {
+    INDEX.sessions = saved
+    for (const k of Object.keys(disk)) delete disk[k]
+  }
+})
+
+test('the green dot means it asks you, for two days: a finished session or an older ask stays grey', async ($, on) => {
+  const saved = INDEX.sessions
+  const finishedNow = { appStatus: 'completed', last: NOW - H }
+  INDEX.sessions = [
+    sess('Asks now', { appStatus: 'blocked', last: NOW - 47 * H }),
+    sess('Page open', {
+      appStatus: 'completed', last: NOW - H,
+      questions: [{ p: 'C:\\out\\q.html', t: NOW - H, title: 'Open page', qs: [{ q: 'Q1', to: 'me', title: 'Q1. Which?', notes: true, opts: [] }] }],
+    }),
+    sess('Asked long ago', { appStatus: 'blocked', last: NOW - 49 * H }),
+    sess('Just finished', finishedNow),
+  ] as any
+  for (const k of Object.keys(disk)) delete disk[k]
+  try {
+    await start($, on)
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    await ui.press({ key: 'by-project' })
+    // all four are listed; only the first two are green
+    for (const id of ['Asks now', 'Page open', 'Asked long ago', 'Just finished']) {
+      expect(await ui.find({ key: `row-${id}` })).toBeDefined()
+    }
+    const dots = await ui.findAll({ type: 'Text', text: '●' })
+    expect(dots.filter((t: any) => t.text === '●' && t.props?.color === '#5fae6e')).toHaveLength(2)
     await ui.unmount()
   } finally {
     INDEX.sessions = saved

@@ -29,7 +29,7 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
   const { Box, Text, Button, Input, Link } = d.table
   const {
     bodyColumns, ix, ui, notes, fullText, now, setUi, all, byId, byCli, kidsOf, here, find, st,
-    isUnseen, isUnanswered, inChip, inProject, listed, groups, topLevel, allTodos,
+    isUnseen, waitsForYou, inChip, inProject, listed, groups, topLevel, allTodos,
   } = d
   const { mediaRow, todoRow, card, row, subLines } = cards
 
@@ -107,7 +107,7 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
   // The graph: the last two weeks' open sessions as dots, related ones close
   // together (the same evidence as a card's Related tab: same thread, same
   // files, same rare words). A dot's colour is its project, or its state where
-  // that matters (brown working, green not answered yet, as the board's dots;
+  // that matters (brown working, green asks you, as the board's dots;
   // drawn outside the button, which colours its own text). A click
   // opens the session's card; hovering shows its title in full.
   const graphView = () => {
@@ -138,7 +138,7 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
             if (!s) return null
             const working = isWorking(s, now)
             const quiet = !working && !['need', 'waiting'].includes(st(s))
-            const nameColor = here && s.id === here.id ? HERE : working ? WORKING : isUnanswered(s) ? READY : undefined
+            const nameColor = here && s.id === here.id ? HERE : working ? WORKING : waitsForYou(s) ? READY : undefined
             return (
               <Box key={`gn-${s.id}`} position="absolute" top={sp.y} left={sp.x} flexDirection="row">
                 {/* the dot beside the button: the desktop draws a button's text in its own colour */}
@@ -159,7 +159,7 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
         <Box flexDirection="row" flexWrap="wrap" gap={2} marginTop={1}>
           <Text dimColor>● colour = project</Text>
           <Text color={WORKING}>◉ working</Text>
-          <Text color={READY}>◉ not answered yet</Text>
+          <Text color={READY}>◉ asks you</Text>
           <Text color={HERE}>◉ here</Text>
         </Box>
       </Box>
