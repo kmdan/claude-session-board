@@ -157,6 +157,8 @@ export function makeCards($: $T, d: Drawing) {
         {working && Svg
           ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
           : <Text color={waitsForYou(c) ? READY : DOT[cs]}>●</Text>}
+        {/* the subsession you are in, marked as on a line and a card */}
+        {here && c.id === here.id && <Text color={HERE}> ◉</Text>}
         <Button key={`sl-${path}>${c.id}`} plain onPress={() => background($, openSession($, c.id))}>
           <Text> {c.title}</Text>
         </Button>
@@ -166,10 +168,12 @@ export function makeCards($: $T, d: Drawing) {
   }
 
   // The subsessions worth a line unasked: those asking you or working always, then
-  // others that moved in the last day, up to four in all, newest first.
+  // others that moved in the last day, up to four in all, newest first. The one
+  // you are in always shows, however quiet: it is where the ◉ is.
   const liveKids = (s: Sess) => {
-    const live = (kidsOf.get(s.id) ?? []).filter(c => asksYou(c) || isWorking(c, now) || now - c.last < 86_400_000)
-    const isUrgent = (c: Sess) => asksYou(c) || isWorking(c, now)
+    const isHere = (c: Sess) => !!here && c.id === here.id
+    const live = (kidsOf.get(s.id) ?? []).filter(c => isHere(c) || asksYou(c) || isWorking(c, now) || now - c.last < 86_400_000)
+    const isUrgent = (c: Sess) => isHere(c) || asksYou(c) || isWorking(c, now)
     const room = Math.max(0, 4 - live.filter(isUrgent).length)
     const others = live.filter(c => !isUrgent(c)).slice(0, room)
     return live.filter(c => isUrgent(c) || others.includes(c))

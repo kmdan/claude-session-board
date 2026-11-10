@@ -884,6 +884,25 @@ test('subsessions are the same short lines under cards and under by-state lines;
   }
 })
 
+test('a subsession you are in is marked ◉ on its line under its main session, however old', async ($, on) => {
+  const child = INDEX.sessions[1] as any
+  const saved = { last: child.last, appStatus: child.appStatus }
+  Object.assign(child, { last: NOW - 20 * 24 * H, appStatus: 'completed' }) // quiet for weeks: no line unasked
+  for (const k of Object.keys(disk)) delete disk[k]
+  try {
+    await start($, on, {}, 'cli-Parser edge cases')
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    await ui.press({ key: 'by-project' })
+    const line = await ui.find({ key: 'sb-Parser rewrite>Parser edge cases' })
+    expect(line).toBeDefined()
+    expect(await ui.findAll({ type: 'Text', text: ' ◉' })).toHaveLength(1)
+    await ui.unmount()
+  } finally {
+    Object.assign(child, saved)
+    for (const k of Object.keys(disk)) delete disk[k]
+  }
+})
+
 test('the watched session is marked and pinned under Here; elsewhere there is no Here', async ($, on) => {
   await start($, on, {}, 'cli-Parser rewrite')
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
