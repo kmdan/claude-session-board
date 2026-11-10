@@ -22,13 +22,20 @@ const moreWord = (total: number, limit: number) => {
   return rest > 10 ? `Show 10 more of ${rest}` : `Show ${rest} more`
 }
 
-type SectionOpts = { note?: string; byTime?: boolean; project?: string; foldable?: boolean }
+// `fill`: the only list on the board (search results, one project): it shows as
+// many as the pane has room for, not the few a section among others shows
+type SectionOpts = { note?: string; byTime?: boolean; project?: string; foldable?: boolean; fill?: boolean }
+
+// the rows above the lists (counts, search, tabs, heading) and what a card takes
+// with its gap (border, title, grey line, a needs line now and then)
+const TOP_ROWS = 12
+const CARD_ROWS = 5
 type Fold = { key: string; title: string; list: Sess[]; asRows?: boolean }
 
 export function makeViews($: $T, d: Drawing, cards: Cards) {
   const { Box, Text, Button, Input, Link } = d.table
   const {
-    bodyColumns, ix, ui, notes, fullText, now, setUi, all, byId, byCli, kidsOf, here, find, st,
+    bodyColumns, bodyRows, ix, ui, notes, fullText, now, setUi, all, byId, byCli, kidsOf, here, find, st,
     isUnseen, waitsForYou, inChip, inProject, listed, groups, topLevel, allTodos,
   } = d
   const { mediaRow, todoRow, card, row, subLines } = cards
@@ -43,7 +50,10 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
     const famAt = (s: Sess) => Math.max(s.last, kidsOf.get(s.id)?.[0]?.last ?? 0)
     const list = opts.byTime ? [...top].sort((a, b) => famAt(b) - famAt(a)) : top
     if (list.length === 0) return null
-    const limit = ui.limits[key] ?? (asRows ? 8 : SHOWN)
+    const room = bodyRows - TOP_ROWS
+    const limit = ui.limits[key] ?? (asRows
+      ? (opts.fill ? Math.max(8, room) : 8)
+      : (opts.fill ? Math.max(SHOWN, Math.floor(room / CARD_ROWS)) : SHOWN))
     const more = list.length > limit && (
       <Box marginTop={asRows ? 0 : 0}>
         <Button key={`more-${key}`} variant="secondary" label={moreWord(list.length, limit)}
@@ -182,7 +192,7 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
     return (
       <Box flexDirection="column">
         {order.map(([p, list]) => section(`proj-${p}`, projectLabel(p), list, projectColor(p), false, true,
-          { note: `active ${ago(now - list[0].last)} ago`, byTime: true, project: p }))}
+          { note: `active ${ago(now - list[0].last)} ago`, byTime: true, project: p, fill: order.length === 1 }))}
         {foldRow([
           { key: 'done', title: 'Done', list: groups.done },
           { key: 'parked', title: 'Parking lot', list: groups.parked },
@@ -360,7 +370,7 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
     }
     return (
       <Box flexDirection="column">
-        {section('found', `Found for "${ui.query}"`, found, undefined, true)}
+        {section('found', `Found for "${ui.query}"`, found, undefined, true, false, { fill: true })}
         {found.length === 0 && <Text dimColor>No title, file or commit matches, archived and parked sessions included.</Text>}
         {saidView()}
       </Box>

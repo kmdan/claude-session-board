@@ -112,6 +112,8 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
   const bodyColumns = (e.props as { bodyColumns?: number }).bodyColumns
   // a pane docked narrow: shorter tags and names, so the corners stay inside the cards
   const narrow = (bodyColumns ?? 80) < 60
+  // how many rows the pane shows at once: a list standing alone fills them
+  const bodyRows = (e.props as { scroll?: { bodyRows?: number } }).scroll?.bodyRows ?? 40
   const ix = await readIndex($)
   const { ui, marks, notes, moved, opening, answered, seen, fullText } = await readShared($)
   const now = Date.now()
@@ -248,7 +250,7 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
   const unseenCount = listed.filter(s => (!here || s.id !== here.id) && isUnseen(s)).length
 
   return {
-    table, Svg, bodyColumns, narrow, ix, ui, marks, notes, moved, opening, answered, seen, fullText, now, setUi,
+    table, Svg, bodyColumns, bodyRows, narrow, ix, ui, marks, notes, moved, opening, answered, seen, fullText, now, setUi,
     all, byId, byCli, kidsOf, here, hereChain, find, chat, st,
     finishedForYou, isUnseen, waitsForYou, isFresh, hasReported, asksYou, isPageOpen, openPages, borderOf,
     inChip, inProject, listed, groups, topLevel, chips, allTodos, dueToday, asking, recentTrail, trail, backTo, unseenCount,

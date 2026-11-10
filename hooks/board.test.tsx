@@ -455,6 +455,24 @@ test('the green dot means it asks you, for two days: a finished session or an ol
   }
 })
 
+test('search results fill a tall pane instead of stopping at five', async ($, on) => {
+  const saved = INDEX.sessions
+  INDEX.sessions = Array.from({ length: 30 }, (_, i) => sess(`Import ${i}`, { last: NOW - (i + 1) * H })) as any
+  for (const k of Object.keys(disk)) delete disk[k]
+  try {
+    await start($, on)
+    const tall = await $.ui.mount({ ...PANE, surface: 'terminal', props: { ...PANE.props, scroll: { offset: 0, bodyRows: 72 } } } as any)
+    await tall.input({ key: 'q', text: 'import' })
+    // 72 rows less the top 12, five rows a card: twelve cards before "Show more"
+    expect(await tall.find({ key: 'c-Import 11' })).toBeDefined()
+    expect(await tall.find({ key: 'c-Import 12' })).toBeUndefined()
+    await tall.unmount()
+  } finally {
+    INDEX.sessions = saved
+    for (const k of Object.keys(disk)) delete disk[k]
+  }
+})
+
 test('a session nobody is looking at opens no pane and writes no line in its chat, until a window attaches', async ($, on) => {
   engine(on)
   const before = opened
