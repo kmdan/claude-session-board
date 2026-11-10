@@ -603,14 +603,21 @@ test('on the Here card: no Open, and a mark shows as the active button, says so,
   await ui.unmount()
 })
 
-test('the watched session is listed once, under Here, and the header counts what is listed', async ($, on) => {
-  await start($, on, {}, 'cli-Parser rewrite')
+test('the watched session is on top under Here and stays in its own place too; its project comes first', async ($, on) => {
+  await start($, on, {}, 'cli-Docs audit')
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ key: 't-@Parser rewrite' })).toBeDefined()
-  expect(await ui.find({ key: 't-Parser rewrite' })).toBeUndefined()
-  // Parser rewrite is Here, so 0 need you; its waiting child is a line on the Here card, not counted again
-  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 0 waiting · 1 working · 0 good enough · ? 1 · 1 unseen')
-  expect(await ui.find({ key: 'sl-@Parser rewrite>Parser edge cases' })).toBeDefined()
+  expect(await ui.find({ key: 't-@Docs audit' })).toBeDefined()
+  // by state: still in Working, where it was
+  expect(await ui.find({ key: 'row-Docs audit' })).toBeDefined()
+  // and counted there: Docs audit is the one working session
+  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toMatch(/ · 1 working · /)
+  // by project: its project (api) is first, though webapp moved as recently
+  await ui.press({ key: 'by-project' })
+  expect(await ui.find({ key: 'row-Docs audit' })).toBeDefined()
+  // the whole heading (name and count); its count alone is a Text of its own too
+  const headings = (await ui.findAll({ type: 'Text', text: /^\S.* · active / })).map(t => t.text)
+  expect(headings[0]).toMatch(/^api /)
+  expect(headings[1]).toMatch(/^webapp /)
   await ui.unmount()
 })
 

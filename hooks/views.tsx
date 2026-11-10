@@ -182,13 +182,17 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
     const byChip = new Map<string, Sess[]>()
     // `listed` is newest first already, so each project's first is its latest
     for (const s of listed) {
-      if ((here && s.id === here.id) || ['done', 'parked'].includes(st(s))) continue
+      if (['done', 'parked'].includes(st(s)) && !(here && s.id === here.id)) continue
       const p = chipOf(s.project)
       const list = byChip.get(p)
       if (list) list.push(s)
       else byChip.set(p, [s])
     }
-    const order = [...byChip.entries()].sort((a, b) => b[1][0].last - a[1][0].last)
+    // the project of the session you are in comes first; the rest by their latest move.
+    // Inside a project the order stays by time: only the project moves up.
+    const hereChip = here ? chipOf((d.hereChain[0] ?? here).project) : undefined
+    const order = [...byChip.entries()]
+      .sort((a, b) => Number(b[0] === hereChip) - Number(a[0] === hereChip) || b[1][0].last - a[1][0].last)
     return (
       <Box flexDirection="column">
         {order.map(([p, list]) => section(`proj-${p}`, projectLabel(p), list, projectColor(p), false, true,

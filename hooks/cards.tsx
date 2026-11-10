@@ -436,6 +436,8 @@ export function makeCards($: $T, d: Drawing) {
           : <Text color={waitsForYou(s) ? READY : DOT[cs]}>●</Text>}
         {/* ▸ unfolds the line into its card; the title itself opens the session */}
         <Button key={`u-${s.id}`} plain onPress={unfold}>▸</Button>
+        {/* the session you are in, in its usual place: marked, as on its card */}
+        {here && s.id === here.id && <Text color={HERE}>◉</Text>}
         <Box flexGrow={1} flexShrink={1}>
           <Button key={`t-${s.id}`} plain onPress={() => background($, openSession($, s.id))}>
             <Text bold={isUnseen(s)}>{s.title}</Text>

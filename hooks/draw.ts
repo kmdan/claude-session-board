@@ -196,8 +196,8 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
   // (the one this board is drawn in stays, under Here)
   const listed = sorted.filter(s => !s.archived && inChip(s))
   const groups: Record<State, Sess[]> = { need: [], waiting: [], working: [], today: [], week: [], earlier: [], good: [], done: [], parked: [] }
-  // the watched session has its own place under Here, so it is not listed twice
-  for (const s of listed) if (!here || s.id !== here.id) groups[st(s)].push(s)
+  // the watched session stays in its own place too: Here on top is a highlight, not a move
+  for (const s of listed) groups[st(s)].push(s)
 
   // A subsession whose parent is in the same list shows nested under it, not
   // twice: except one that just asked for you, which gets its own card on
