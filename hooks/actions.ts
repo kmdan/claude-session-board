@@ -2,7 +2,8 @@
 import type { Answered, Mark, Marks, Note, Notes, QPage, Sess } from '../types'
 import { pageSig, parseQuick, setMark } from './board'
 import {
-  background, glow, INBOX, live, placement, readIndex, readQuery, readSeen, setAnswered, setMarks, setNotes, setSeen, updateOpening, updateUi,
+  background, flushUse, glow, INBOX, live, logUse, placement, readIndex, readQuery, readSeen, setAnswered, setMarks, setNotes, setSeen,
+  updateOpening, updateUi,
 } from './state'
 import type { $T } from './state'
 
@@ -19,7 +20,8 @@ export async function markSeen($: $T, id: string): Promise<void> {
  * write re-reads the store first: another session's marks and notes since
  * this one loaded are kept, not overwritten with a stale copy.
  */
-export async function mark($: $T, id: string, m: Mark | null, title = ''): Promise<void> {
+export async function mark($: $T, id: string, m: Mark | null, title = '', via = 'card'): Promise<void> {
+  logUse('mark', { id, mark: m ?? 'auto', via })
   const stored = ((await $.store.get('marks')) as Marks | undefined) ?? {}
   const next = setMark(stored, id, m, Date.now())
   await $.store.set('marks', next)
@@ -52,6 +54,7 @@ export async function sendNote($: $T, s: Sess, n: Note, how: 'prompt' | 'subsess
   const message = how === 'prompt' ? n.text
     : `Start a linked side session for this (start_session, initiation "user_asked", context "fork"), `
       + `brief it from what you know here, then carry on with your own work:\n\n${n.text}`
+  logUse('todo-send', { how })
   if (!(await deliver($, s.id, message))) return
   await editNotes($, s.id, list => list.map(x => (x.id === n.id ? { ...x, sent: how } : x)))
   $.ui.toast(how === 'prompt' ? `Sent to "${s.title}"` : `Asked "${s.title}" to start a subsession`)
@@ -81,6 +84,7 @@ async function deliver($: $T, sessionId: string, message: string): Promise<boole
 
 /** For a page answered some way the board cannot see (in your own words, out loud). */
 export async function markAnswered($: $T, page: QPage): Promise<void> {
+  logUse('answered', { questions: page.qs.length })
   const stored = ((await $.store.get('answered')) as Answered | undefined) ?? {}
   const next = { ...stored, [page.p]: { at: Date.now(), t: page.t, sig: pageSig(page) } }
   await $.store.set('answered', next)
@@ -92,6 +96,7 @@ export async function addTodo($: $T, owner: string, line: string): Promise<void>
   const now = Date.now()
   const { text, labels, due } = parseQuick(line, now)
   if (!text) return
+  logUse('todo', { inbox: owner === INBOX, labels: labels.length, due: !!due })
   await editNotes($, owner, list => [...list, { id: `${now}`, text, at: now, labels, due }])
 }
 
@@ -104,6 +109,7 @@ export async function toggleDone($: $T, owner: string, id: string): Promise<void
  * this board is drawn in, briefed with the todo. The todo stays, marked.
  */
 export async function startFromTodo($: $T, n: Note): Promise<void> {
+  logUse('todo-session')
   try {
     const res = await $.mcp.call('ccd_session', 'start_session', {
       initiation: 'user_asked',
@@ -130,7 +136,7 @@ export async function startFromTodo($: $T, n: Note): Promise<void> {
  * app, which takes a few seconds to switch, so the button says "opening…" at
  * once instead of looking dead.
  */
-export async function openSession($: $T, id: string): Promise<void> {
+export async function openSession($: $T, id: string, via = '?'): Promise<void> {
   // the link goes out first: everything else redraws the board, and the switch
   // should not wait for that. Only what changes redraws: a session already seen
   // and an empty search stay as they are.
@@ -141,7 +147,14 @@ export async function openSession($: $T, id: string): Promise<void> {
   })
   const s = live.sessions.find(x => x.id === id)
   const seen = await readSeen($)
-  if (!s || Math.max(s.touched ?? 0, seen[id] ?? 0) < s.last) background($, markSeen($, id))
+  const isUnseen = !s || Math.max(s.touched ?? 0, seen[id] ?? 0) < s.last
+  // where it was opened from, and what the session was like then
+  logUse('open', {
+    via, id, project: s?.project, sub: !!s?.parent, status: s?.appStatus ?? null, unseen: isUnseen,
+    ageMin: s ? Math.round((Date.now() - s.last) / 60_000) : null,
+  })
+  background($, flushUse($))
+  if (isUnseen) background($, markSeen($, id))
   // leaving for a session: the search is cleared, the project chip stays (it is where you work)
   live.typedQuery = ''
   if ((await readQuery($)) !== '') {
@@ -170,13 +183,15 @@ export async function stepTrail($: $T, dir: 1 | -1, here: string | undefined, re
   const pos = t.pos + dir
   if (pos < 0 || pos >= t.list.length) return
   await $.store.set('trail', { list: t.list, pos, at: Date.now() })
-  await openSession($, t.list[pos])
+  await openSession($, t.list[pos], dir === 1 ? 'trail-back' : 'trail-forward')
 }
 
 export async function openFile($: $T, path: string): Promise<void> {
+  logUse('file', { kind: path.split('.').pop()?.toLowerCase() ?? '' })
   await $.process.run(['explorer.exe', path])
 }
 
 export async function reveal($: $T, path: string): Promise<void> {
+  logUse('folder')
   await $.process.run(['explorer.exe', `/select,${path}`])
 }

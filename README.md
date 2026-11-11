@@ -93,6 +93,18 @@ or recolour some, put a `projects.json` beside the plugin (git ignores it):
 { "my-very-long-repo-name": { "label": "repo", "color": "#3a7bd5" } }
 ```
 
+## Usage log
+
+The board notes what you do on it, one line per action: which button opened a
+session, views, orders, project chips, tabs, folds, "show more", marks,
+searches. Each session writes its own `cache/usage-<day>-<session>.jsonl`
+(git ignores `cache/`; nothing is sent anywhere). To see what is used and what
+is not:
+
+```
+py -3 scripts/usage_report.py --days 14
+```
+
 ## Development
 
 The board is a Claude Code mod, in `hooks/`:

@@ -8,7 +8,7 @@ import { stepTrail } from './actions'
 import { makeCards } from './cards'
 import { ACCENT, PULSE_WORKING, READY, readDrawing, short } from './draw'
 import { openBoard, quickTick, refresh, searchText, tick } from './indexing'
-import { background, live, PANE } from './state'
+import { background, flushUse, live, logUse, PANE } from './state'
 import { makeViews } from './views'
 
 export const register: Register = on => {
@@ -22,6 +22,10 @@ export const register: Register = on => {
     })
     $.clock.every(120_000, () => {
       background($, tick($))
+    })
+    // the usage log goes to disk once a minute (and when you open a session)
+    $.clock.every(60_000, () => {
+      background($, flushUse($))
     })
     // the quick part (snapshot, pane) is awaited; the indexing runs behind it.
     // A window that detaches just then can still make opening fail ("no surface
@@ -39,6 +43,7 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'board' }, async $ => {
+    logUse('board-open', { via: 'command' })
     await openBoard($)
     return { text: 'Session board opened.' }
   })
@@ -56,7 +61,10 @@ export const register: Register = on => {
     const { Box, Button } = $.ui.resolve(e)
     return (
       <Box>
-        <Button key="open-board" plain onPress={() => background($, openBoard($))}>▦ Sessions</Button>
+        <Button key="open-board" plain onPress={() => {
+          logUse('board-open', { via: 'band-button' })
+          background($, openBoard($))
+        }}>▦ Sessions</Button>
       </Box>
     )
   })
@@ -89,7 +97,10 @@ export const register: Register = on => {
               <Button key="trail-forward" variant="secondary" label="›" onPress={() => background($, stepTrail($, -1, here?.id, recentTrail))} />
             )}
             {ix.isLoading && Svg && <Svg source={PULSE_WORKING} alt="indexing" width={12} height={12} isInteractive />}
-            <Button key="refresh" variant="secondary" label={ix.isLoading ? 'Indexing…' : '↻ Refresh'} onPress={() => background($, refresh($))} />
+            <Button key="refresh" variant="secondary" label={ix.isLoading ? 'Indexing…' : '↻ Refresh'} onPress={() => {
+              logUse('refresh')
+              background($, refresh($))
+            }} />
           </Box>
         </Box>
         <Box flexDirection="row" gap={1} alignItems="center">
@@ -115,6 +126,7 @@ export const register: Register = on => {
               onSubmit={v => {
                 live.typedQuery = v
                 setUi(u => ({ ...u, query: v, view: 'board' }))
+                logUse('search-said', { q: v.slice(0, 60) })
                 background($, searchText($, v))
               }}
             />

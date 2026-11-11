@@ -159,7 +159,7 @@ export function makeCards($: $T, d: Drawing) {
           : <Text color={waitsForYou(c) ? READY : DOT[cs]}>●</Text>}
         {/* the subsession you are in, marked as on a line and a card */}
         {here && c.id === here.id && <Text color={HERE}> ◉</Text>}
-        <Button key={`sl-${path}>${c.id}`} plain onPress={() => background($, openSession($, c.id))}>
+        <Button key={`sl-${path}>${c.id}`} plain onPress={() => background($, openSession($, c.id, 'sub-line'))}>
           <Text> {c.title}</Text>
         </Button>
         <Text color={asks ? ACCENT : undefined} dimColor={!asks}> {word ? `${word} · ` : ''}{ago(now - c.last)}</Text>
@@ -306,7 +306,7 @@ export function makeCards($: $T, d: Drawing) {
         <Text dimColor>{ago(now - s.last)}</Text>
         {/* one click to the session itself; the title only unfolds the card */}
         {!(here && s.id === here.id) && (
-          <Button key={`go-${path}`} plain onPress={() => background($, openSession($, s.id))}>
+          <Button key={`go-${path}`} plain onPress={() => background($, openSession($, s.id, 'card-corner'))}>
             {opening === s.id ? <Text color={ACCENT}>opening…</Text> : <Text dimColor>open ↗</Text>}
           </Button>
         )}
@@ -398,7 +398,7 @@ export function makeCards($: $T, d: Drawing) {
             <Box flexDirection="row" flexWrap="wrap" gap={1} marginTop={1}>
               {/* this session's own card has nowhere to open to */}
               {!(here && s.id === here.id) && (
-                <Button key={`o-${path}`} label="Open" onPress={() => background($, openSession($, s.id))} />
+                <Button key={`o-${path}`} label="Open" onPress={() => background($, openSession($, s.id, 'card-button'))} />
               )}
               {/* the state set by hand is the highlighted one; pressing it again goes back to automatic */}
               {([['g', 'good', 'Good enough'], ['d', 'done', 'Done'], ['p', 'parked', 'Park'], ['w', 'working', 'Working']] as const).map(([k, m, label]) => (
@@ -443,7 +443,7 @@ export function makeCards($: $T, d: Drawing) {
         {/* the session you are in, in its usual place: marked, as on its card */}
         {here && s.id === here.id && <Text color={HERE}>◉</Text>}
         <Box flexGrow={1} flexShrink={1}>
-          <Button key={`t-${s.id}`} plain onPress={() => background($, openSession($, s.id))}>
+          <Button key={`t-${s.id}`} plain onPress={() => background($, openSession($, s.id, 'line-title'))}>
             <Text bold={isUnseen(s)}>{s.title}</Text>
             {kids > 0 && <Text dimColor>  +{kids}{reports ? ` ↩${reports}` : ''}</Text>}
           </Button>
@@ -452,9 +452,9 @@ export function makeCards($: $T, d: Drawing) {
         {withTag && <Text color={projectColor(s.project)} wrap="truncate-end">{projectLabel(chipOf(s.project))}</Text>}
         <Text dimColor>{ago(now - s.last)}</Text>
         {/* quick marks without unfolding: done, park (undo: the card's Auto button) */}
-        <Button key={`rd-${s.id}`} plain dimColor onPress={() => background($, mark($, s.id, 'done', s.title))}>✓</Button>
-        <Button key={`rp-${s.id}`} plain dimColor onPress={() => background($, mark($, s.id, 'parked', s.title))}>⏸</Button>
-        <Button key={`go-${s.id}`} plain onPress={() => background($, openSession($, s.id))}>
+        <Button key={`rd-${s.id}`} plain dimColor onPress={() => background($, mark($, s.id, 'done', s.title, 'line'))}>✓</Button>
+        <Button key={`rp-${s.id}`} plain dimColor onPress={() => background($, mark($, s.id, 'parked', s.title, 'line'))}>⏸</Button>
+        <Button key={`go-${s.id}`} plain onPress={() => background($, openSession($, s.id, 'line-arrow'))}>
           {opening === s.id ? <Text color={ACCENT}>opening…</Text> : <Text dimColor>↗</Text>}
         </Button>
       </Box>

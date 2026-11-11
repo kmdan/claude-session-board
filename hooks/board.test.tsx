@@ -473,6 +473,27 @@ test('search results fill a tall pane instead of stopping at five', async ($, on
   }
 })
 
+test('what you do on the board is logged locally, one line each, for later suggestions', async ($, on) => {
+  const clock = mock.clock(on, { now: Date.now() })
+  for (const k of Object.keys(disk)) delete disk[k]
+  await start($, on, undefined, undefined, false)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'by-project' })
+  await ui.press({ key: 't-Docs audit' })
+  await clock.advance(60_000)
+  const file = Object.keys(disk).find(p => /cache[\\/]usage-\d{4}-\d\d-\d\d-[\w-]+\.jsonl$/.test(p))
+  expect(file).toBeDefined()
+  const lines = disk[file!].text.trim().split('\n').map(l => JSON.parse(l))
+  expect(lines.some(l => l.what === 'ui' && l.key === 'boardBy' && l.to === 'project')).toBe(true)
+  expect(lines.some(l => l.what === 'open' && l.via === 'line-title' && l.id === 'Docs audit')).toBe(true)
+  // a later flush keeps what was written before
+  await ui.press({ key: 'by-state' })
+  await clock.advance(60_000)
+  const again = disk[file!].text.trim().split('\n')
+  expect(again.length).toBe(lines.length + 1)
+  await ui.unmount()
+})
+
 test('a session nobody is looking at opens no pane and writes no line in its chat, until a window attaches', async ($, on) => {
   engine(on)
   const before = opened

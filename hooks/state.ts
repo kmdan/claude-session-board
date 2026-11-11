@@ -57,7 +57,44 @@ export async function readQuery($: $T): Promise<string> {
 }
 
 export async function updateUi($: $T, fn: (u: Ui) => Ui): Promise<void> {
-  await update($, uiAtom, u => fn(u))
+  await update($, uiAtom, u => {
+    const next = fn(u)
+    if (next !== u) logUiChange(u, next)
+    return next
+  })
+}
+
+// The usage log: what you click on the board, one JSON line each, so that later
+// a session can read how the board is really used and suggest what to change.
+// Local only (cache/ is gitignored). The mod's files cannot be appended to, so
+// each session keeps its lines and rewrites its own day file once a minute:
+// cache/usage-<day>-<session>.jsonl. Sessions never write each other's file.
+const pendingUse: string[] = []
+
+export function logUse(what: string, detail: Record<string, unknown> = {}): void {
+  pendingUse.push(JSON.stringify({ t: Date.now(), what, ...detail }))
+}
+
+const UI_KEYS = ['view', 'boardBy', 'project', 'open', 'tab', 'focus', 'label'] as const
+
+function logUiChange(a: Ui, b: Ui): void {
+  for (const k of UI_KEYS) if (a[k] !== b[k]) logUse('ui', { key: k, from: a[k] ?? '', to: b[k] ?? '' })
+  if (a.query !== b.query) logUse('search', { q: b.query.slice(0, 60) })
+  for (const k of Object.keys({ ...a.shown, ...b.shown })) {
+    if (!!a.shown[k] !== !!b.shown[k]) logUse('fold', { key: k, shown: !!b.shown[k] })
+  }
+  for (const k of Object.keys(b.limits)) if (a.limits[k] !== b.limits[k]) logUse('more', { key: k, to: b.limits[k] })
+}
+
+export async function flushUse($: $T): Promise<void> {
+  if (pendingUse.length === 0) return
+  const lines = pendingUse.splice(0)
+  const d = new Date()
+  const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const who = (await $.session.id()).replace(/[^\w-]/g, '').slice(0, 8)
+  const path = `${$.plugin.root}/cache/usage-${day}-${who}.jsonl`
+  const old = await $.fs.read(path).catch(() => '')
+  await $.fs.write(path, `${old}${lines.join('\n')}\n`)
 }
 
 export async function updateIndexMeta($: $T, fn: (m: IndexMeta) => IndexMeta): Promise<void> {
