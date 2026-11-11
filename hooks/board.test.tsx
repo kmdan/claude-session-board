@@ -400,29 +400,29 @@ test('the board opens by project; By state switches to the sections', async ($, 
   await ui.unmount()
 })
 
-test('under Here your whole family shows from the top, at every level, however old; archived ones do not', async ($, on) => {
+test('under Here only your session shows, inside its main session when it is a subsession; not the rest of the family', async ($, on) => {
   const saved = INDEX.sessions
   const old = NOW - 20 * 24 * H
   INDEX.sessions = [
     sess('Top', { last: old }),
-    sess('Way down', { parent: 'Top' }),
-    sess('You', { parent: 'Way down' }),
-    sess('Your child', { parent: 'You', last: old }),
-    sess('Aunt', { parent: 'Top', last: old }),
-    sess('Cousin', { parent: 'Aunt', last: old }),
-    sess('Gone', { parent: 'Aunt', archived: true }),
+    sess('Main', { parent: 'Top' }),
+    sess('You', { parent: 'Main' }),
+    sess('Your child', { parent: 'You' }),
+    sess('Your old child', { parent: 'You', last: old }),
+    sess('Sibling', { parent: 'Main' }),
   ] as any
   for (const k of Object.keys(disk)) delete disk[k]
   try {
     await start($, on, {}, 'cli-You')
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-    expect(await ui.find({ key: 't-@Top' })).toBeDefined()
-    expect(await ui.find({ key: 't-@Top>Way down' })).toBeDefined()
-    expect(await ui.find({ key: 't-@Top>Way down>You' })).toBeDefined()
-    expect(await ui.find({ key: 'sl-@Top>Way down>You>Your child' })).toBeDefined()
-    expect(await ui.find({ key: 'sl-@Top>Aunt' })).toBeDefined()
-    expect(await ui.find({ key: 'sl-@Top>Aunt>Cousin' })).toBeDefined()
-    expect(await ui.find({ key: 'sl-@Top>Aunt>Gone' })).toBeUndefined()
+    expect(await ui.find({ key: 't-@Main' })).toBeDefined()
+    expect(await ui.find({ key: 't-@Main>You' })).toBeDefined()
+    // your own subsessions as on any card: the live one a line, the old one behind "1 more"
+    expect(await ui.find({ key: 'sl-@Main>You>Your child' })).toBeDefined()
+    expect(await ui.find({ key: 'km-@Main>You' })).toBeDefined()
+    // no grandparent, no siblings under Here (they are in the board below)
+    expect(await ui.find({ key: 't-@Top' })).toBeUndefined()
+    expect(await ui.find({ key: 'sl-@Main>Sibling' })).toBeUndefined()
     await ui.unmount()
   } finally {
     INDEX.sessions = saved

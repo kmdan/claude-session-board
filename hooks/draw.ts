@@ -134,13 +134,10 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
   const nearness = here ? memo.near.get(here.id)! : new Map<string, number>()
   const { find, chat } = memo
 
-  // The family of the session you are in, from its top: the sessions leading down
-  // to you, last of all you. An archived session ends the climb: the board leaves it out.
-  const hereChain: Sess[] = []
-  for (let c = here; c && !hereChain.includes(c); c = c.parent ? byId.get(c.parent) : undefined) {
-    if (c !== here && c.archived) break
-    hereChain.unshift(c)
-  }
+  // What Here shows: the session you are in, and its main session when it is a
+  // subsession (not archived), main session first. Not the rest of the family.
+  const hereParent = here?.parent ? byId.get(here.parent) : undefined
+  const hereChain: Sess[] = here ? (hereParent && !hereParent.archived && hereParent !== here ? [hereParent, here] : [here]) : []
 
   // a session's state is asked for many times in one drawing
   const states = new Map<string, State>()

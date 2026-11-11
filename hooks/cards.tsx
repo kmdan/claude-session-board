@@ -179,35 +179,21 @@ export function makeCards($: $T, d: Drawing) {
     return live.filter(c => isUrgent(c) || others.includes(c))
   }
 
-  // A session's subsessions and theirs, a line each, each level indented further.
-  // `skip`: those drawn as cards, which draw their own family.
-  const familyLines = (s: Sess, path: string, indent: number, skip: (c: Sess) => boolean): ReturnType<typeof subLine>[] => {
-    const kids = (kidsOf.get(s.id) ?? []).filter(c => !skip(c))
-    return kids.flatMap((c, i) => [
-      subLine(c, path, i === kids.length - 1, indent),
-      ...familyLines(c, `${path}>${c.id}`, indent + 2, skip),
-    ])
-  }
-
   // Under a card, open or not: the live subsessions as lines, the rest behind
-  // one "N more". Under Here the way down to you stays cards (for your marks and
-  // tabs, which have no other way in from where you are), and nothing is folded.
+  // one "N more". Under Here, a main session shows only your subsession, as a
+  // card (its siblings are in the board below); your own session shows its
+  // subsessions as any card does.
   const children = (s: Sess, depth: number, path: string) => {
     const kids = kidsOf.get(s.id) ?? []
-    // under Here, your whole family shows: all that is not archived, at every level
     const isHereFamily = path.startsWith('@')
-    if (kids.length === 0 || (depth >= 3 && !isHereFamily)) return null
+    if (kids.length === 0 || depth >= 3) return null
     const isHereKid = (c: Sess) => isHereFamily && hereChain.includes(c)
-    if (isHereFamily) {
+    if (isHereFamily && here && s.id !== here.id) {
       const hereKid = kids.find(isHereKid)
+      if (!hereKid) return null
       return (
-        <Box flexDirection="column">
-          {hereKid && (
-            <Box key={`kb-${path}>${hereKid.id}`} flexDirection="column" flexShrink={1} minWidth={0} overflow="hidden" marginLeft={2}>
-              {card(hereKid, true, depth + 1, `${path}>${hereKid.id}`)}
-            </Box>
-          )}
-          {familyLines(s, path, 2, isHereKid)}
+        <Box key={`kb-${path}>${hereKid.id}`} flexDirection="column" flexShrink={1} minWidth={0} overflow="hidden" marginLeft={2}>
+          {card(hereKid, true, depth + 1, `${path}>${hereKid.id}`)}
         </Box>
       )
     }
@@ -215,7 +201,7 @@ export function makeCards($: $T, d: Drawing) {
     const others = kids.filter(c => !isHereKid(c))
     const lines = ui.shown[`kids-${path}`] ? others : liveKids(s).filter(c => !isHereKid(c))
     const folded = others.length - lines.length
-    const hasMore = folded > 0 && depth === 0
+    const hasMore = folded > 0 && (depth === 0 || isHereFamily)
     if (!hereKid && lines.length === 0 && !hasMore) return null
     return (
       <Box flexDirection="column">
