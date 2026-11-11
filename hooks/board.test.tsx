@@ -58,6 +58,7 @@ let placed = true // what the surface answers to ui.open: false = nothing drew t
 let surfaces: string[] = ['desktop'] // what draws this session: none = nobody is looking at it
 let quickRows: Record<string, unknown>[] = [] // what the 20-second check finds in the app's records
 let draws = 0 // a drawing reads the trail once: how often the board was drawn
+const archived: string[] = [] // sessions the app was asked to archive
 let closed = 0
 // what the app reports of the board's pane: none, or one it keeps open but hidden
 let panes: { id: string; title: string; isShown: boolean; isFocused: boolean; isPlaced: boolean }[] = []
@@ -130,6 +131,10 @@ function engine(on: any, store: Record<string, unknown> = {}, self = 'cli-elsewh
     if (e.tool === 'start_session') {
       started.push(e.args)
       return { value: { isError: false, content: [{ type: 'text', text: 'Started local_00000000-0000-0000-0000-000000000001' }] } }
+    }
+    if (e.tool === 'archive_session') {
+      archived.push(e.args.session_id)
+      return { value: { isError: false, content: [{ type: 'text', text: 'archived' }] } }
     }
     if (e.tool === 'send_message') {
       sent.push(e.args)
@@ -492,6 +497,38 @@ test('what you do on the board is logged locally, one line each, for later sugge
   const again = disk[file!].text.trim().split('\n')
   expect(again.length).toBe(lines.length + 1)
   await ui.unmount()
+})
+
+test('Tidy up lists what has been quiet a month, worktrees unticked, and archives the ticked ones', async ($, on) => {
+  const saved = INDEX.sessions
+  const old = NOW - 40 * 24 * H
+  INDEX.sessions = [
+    ...saved,
+    sess('Old in worktree', { last: old, cwd: 'C:\\r\\.claude\\worktrees\\x' }),
+    sess('Old with busy child', { last: old }),
+    sess('Busy child', { parent: 'Old with busy child' }),
+  ] as any
+  for (const k of Object.keys(disk)) delete disk[k]
+  archived.length = 0
+  try {
+    await start($, on)
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    // Old probe (40 days) and the worktree one; not the one whose subsession just moved
+    expect((await ui.find({ key: 'v-tidy' }) as any)?.props?.label).toBe('Tidy up · 2')
+    await ui.press({ key: 'v-tidy' })
+    expect(await ui.find({ key: 'td-Old probe' })).toBeDefined()
+    expect(await ui.find({ key: 'td-Old with busy child' })).toBeUndefined()
+    expect((await ui.find({ key: 'tk-Old in worktree' }) as any)?.text).toBe('☐')
+    expect((await ui.find({ key: 'tidy-archive' }) as any)?.props?.label).toBe('Archive 1 ticked')
+    await ui.press({ key: 'tidy-archive' })
+    expect(archived).toEqual(['Old probe'])
+    // gone from the list at once
+    expect(await ui.find({ key: 'td-Old probe' })).toBeUndefined()
+    await ui.unmount()
+  } finally {
+    INDEX.sessions = saved
+    for (const k of Object.keys(disk)) delete disk[k]
+  }
 })
 
 test('a session nobody is looking at opens no pane and writes no line in its chat, until a window attaches', async ($, on) => {

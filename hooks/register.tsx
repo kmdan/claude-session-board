@@ -146,6 +146,11 @@ export const register: Register = on => {
             label={dueToday > 0 ? `Todos · ${dueToday}` : 'Todos'} onPress={() => setUi(u => ({ ...u, view: 'todos' }))} />
           <Button key="v-media" variant={ui.view === 'media' ? 'primary' : 'secondary'} label="Media" onPress={() => setUi(u => ({ ...u, view: 'media' }))} />
           <Button key="v-graph" variant={ui.view === 'graph' ? 'primary' : 'secondary'} label="Graph" onPress={() => setUi(u => ({ ...u, view: 'graph' }))} />
+          {/* only while there is something to tidy */}
+          {(d.tidy.length > 0 || ui.view === 'tidy') && (
+            <Button key="v-tidy" variant={ui.view === 'tidy' ? 'primary' : 'secondary'} label={`Tidy up · ${d.tidy.length}`}
+              onPress={() => setUi(u => ({ ...u, view: 'tidy' }))} />
+          )}
           <Text dimColor>|</Text>
           <Button key="p-all" variant={ui.project === '' ? 'primary' : 'secondary'} label="All" onPress={() => setUi(u => ({ ...u, project: '' }))} />
           {chips.map(p => (

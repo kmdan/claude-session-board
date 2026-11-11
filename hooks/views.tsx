@@ -4,7 +4,7 @@ import type { Media, Sess } from '../types'
 import { ago, byRecent, dueBucket, isWorking, layoutGraph, matches, projectColor, projectLabel } from './board'
 import type { GraphSpot } from './board'
 import type { Cards } from './cards'
-import { addTodo } from './actions'
+import { addTodo, archiveMany } from './actions'
 import { ACCENT, BORDER, chipOf, DOT, HERE, READY, SEEN, stateWord, WORKING } from './draw'
 import type { Drawing, TodoRow } from './draw'
 import { background, INBOX } from './state'
@@ -321,6 +321,64 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
     )
   }
 
+  // Tidy up: sessions that could be archived, ticked unless they sit in their own
+  // worktree (archiving removes it). One button archives the ticked ones.
+  const tidyView = () => {
+    const { tidy, famLast, inWorktree, isTicked, marks } = d
+    const list = [...tidy].sort((a, b) => famLast(a) - famLast(b))
+    const ticked = list.filter(isTicked)
+    const limit = ui.limits.tidy ?? Math.max(10, bodyRows - TOP_ROWS - 6)
+    const pick = (ids: string[], on: boolean) =>
+      setUi(u => ({ ...u, tidyPick: { ...u.tidyPick, ...Object.fromEntries(ids.map(id => [id, on])) } }))
+    if (list.length === 0) return <Text dimColor>Nothing to tidy: no session has been quiet a month{ui.project ? ' in this project' : ''}.</Text>
+    return (
+      <Box flexDirection="column">
+        <Box flexDirection="row" gap={1} alignItems="center">
+          <Text color={SEEN}>▎</Text>
+          <Text>
+            <Text bold>Tidy up</Text>
+            <Text dimColor> {list.length} · quiet a month, or done / parked and quiet 3 days</Text>
+          </Text>
+        </Box>
+        <Text dimColor wrap="wrap">
+          Archived sessions leave the board and the app's list; the app's Archived list brings one back. The app may
+          ask you to approve each. Sessions in a worktree start unticked: archiving removes the worktree.
+        </Text>
+        <Box flexDirection="row" flexWrap="wrap" gap={1} marginY={1}>
+          <Button key="tidy-archive" variant="primary" label={`Archive ${ticked.length} ticked`}
+            onPress={() => { if (ticked.length) background($, archiveMany($, ticked.map(s => s.id))) }} />
+          <Button key="tidy-all" variant="secondary" label="Tick all" onPress={() => pick(list.map(s => s.id), true)} />
+          <Button key="tidy-none" variant="secondary" label="Untick all" onPress={() => pick(list.map(s => s.id), false)} />
+          <Button key="tidy-back" variant="secondary" label="Back to the board" onPress={() => setUi(u => ({ ...u, view: 'board' }))} />
+        </Box>
+        <Box flexDirection="column" borderStyle="round" borderColor={BORDER} paddingX={1}>
+          {list.slice(0, limit).map(s => {
+            const kids = (kidsOf.get(s.id) ?? []).length
+            const m = marks[s.id]?.mark
+            return (
+              <Box key={`td-${s.id}`} flexDirection="row" gap={1} alignItems="center" minWidth={0} overflow="hidden">
+                <Button key={`tk-${s.id}`} plain onPress={() => pick([s.id], !isTicked(s))}>{isTicked(s) ? '☑' : '☐'}</Button>
+                <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
+                  <Text wrap="truncate-end">{s.title}{kids ? <Text dimColor>  +{kids}</Text> : null}</Text>
+                </Box>
+                {inWorktree(s) && <Text color={ACCENT}>worktree</Text>}
+                {m && <Text dimColor>{stateWord[m === 'working' ? 'working' : m]}</Text>}
+                <Text color={projectColor(s.project)} wrap="truncate-end">{projectLabel(chipOf(s.project))}</Text>
+                <Text dimColor>{ago(now - famLast(s))}</Text>
+              </Box>
+            )
+          })}
+          {list.length > limit && (
+            <Box>
+              <Button key="more-tidy" variant="secondary" label={moreWord(list.length, limit)}
+                onPress={() => setUi(u => ({ ...u, limits: { ...u.limits, tidy: limit + 10 } }))} />
+            </Box>
+          )}
+        </Box>
+      </Box>
+    )
+  }
+
   const focusView = () => {
     const s = byId.get(ui.focus)
     if (!s) return <Text dimColor>That session is not in the index.</Text>
@@ -386,6 +444,7 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
     : ui.view === 'graph' ? graphView()
     : ui.view === 'todos' ? todosView()
     : ui.view === 'focus' ? focusView()
+    : ui.view === 'tidy' ? tidyView()
     : ui.query !== '' ? foundView()
     : boardView())
 }

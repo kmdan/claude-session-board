@@ -116,9 +116,12 @@ export type Ui = {
   /**
    * board = the sections; todos = every todo by due day; media = everything
    * made, newest first; focus = one session and its relatives; graph = the
-   * recent sessions as dots, related ones close together
+   * recent sessions as dots, related ones close together; tidy = what could be
+   * archived, to tick and archive in one go
    */
-  view: 'board' | 'todos' | 'media' | 'focus' | 'graph'
+  view: 'board' | 'todos' | 'media' | 'focus' | 'graph' | 'tidy'
+  /** Tidy up: ticked or unticked by hand, by session id (the rest keep their default) */
+  tidyPick?: Record<string, boolean>
   /** label filter of the Todos view; '' = all */
   label: string
   focus: string

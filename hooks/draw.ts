@@ -249,11 +249,32 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
   // finished since you last looked (the app's notifications you have not opened)
   const unseenCount = listed.filter(s => (!here || s.id !== here.id) && isUnseen(s)).length
 
+  // Tidy up: what could be archived. A family quiet a month (the session and all
+  // its subsessions), or one you marked done or parked that has been quiet three
+  // days. Never the family you are in, nor anything working. A subsession whose
+  // main session is listed is not listed again: archiving the main session takes
+  // its finished subsessions with it.
+  const famLast = (s: Sess, depth = 0): number =>
+    Math.max(s.last, ...(depth < 6 ? (kidsOf.get(s.id) ?? []).map(c => famLast(c, depth + 1)) : []))
+  const isTidy = (s: Sess) => {
+    if (hereChain.includes(s) || isWorking(s, now)) return false
+    const quiet = now - famLast(s)
+    const m = marks[s.id]?.mark
+    return quiet >= 30 * 86_400_000 || ((m === 'done' || m === 'parked') && quiet >= 3 * 86_400_000)
+  }
+  const tidyAll = listed.filter(isTidy)
+  const tidyIds = new Set(tidyAll.map(s => s.id))
+  const tidy = tidyAll.filter(s => !(s.parent && tidyIds.has(s.parent)))
+  // a session in its own worktree: archiving removes that worktree, so it is unticked unless you tick it
+  const inWorktree = (s: Sess) => /[\\/](worktrees?|\.claude[\\/]worktrees)[\\/]/i.test(s.cwd)
+  const isTicked = (s: Sess) => ui.tidyPick?.[s.id] ?? !inWorktree(s)
+
   return {
     table, Svg, bodyColumns, bodyRows, narrow, ix, ui, marks, notes, moved, opening, answered, seen, fullText, now, setUi,
     all, byId, byCli, kidsOf, here, hereChain, find, chat, st,
     finishedForYou, isUnseen, waitsForYou, isFresh, hasReported, asksYou, isPageOpen, openPages, borderOf,
     inChip, inProject, listed, groups, topLevel, chips, allTodos, dueToday, asking, recentTrail, trail, backTo, unseenCount,
+    tidy, famLast, inWorktree, isTicked,
   }
 }
 

@@ -2,7 +2,7 @@
 import type { Answered, Mark, Marks, Note, Notes, QPage, Sess } from '../types'
 import { pageSig, parseQuick, setMark } from './board'
 import {
-  background, flushUse, glow, INBOX, live, logUse, placement, readIndex, readQuery, readSeen, setAnswered, setMarks, setNotes, setSeen,
+  background, flushUse, glow, INBOX, live, logUse, placement, readIndex, readQuery, readSeen, setAnswered, setIndex, setMarks, setNotes, setSeen,
   updateOpening, updateUi,
 } from './state'
 import type { $T } from './state'
@@ -184,6 +184,46 @@ export async function stepTrail($: $T, dir: 1 | -1, here: string | undefined, re
   if (pos < 0 || pos >= t.list.length) return
   await $.store.set('trail', { list: t.list, pos, at: Date.now() })
   await openSession($, t.list[pos], dir === 1 ? 'trail-back' : 'trail-forward')
+}
+
+/**
+ * Tidy up: archives the ticked sessions through the app's own archive, one by
+ * one (the app may ask you to approve each). Archived is reversible: the app's
+ * Archived list brings a session back. A refusal is counted and the rest go on;
+ * three in a row stop it (you most likely said no).
+ */
+export async function archiveMany($: $T, ids: string[]): Promise<void> {
+  logUse('tidy-archive', { count: ids.length })
+  $.ui.toast(`Archiving ${ids.length} session${ids.length === 1 ? '' : 's'}…`)
+  const done: string[] = []
+  const failed: string[] = []
+  let refusedInRow = 0
+  for (const id of ids) {
+    let ok = false
+    let why = ''
+    try {
+      const res = await $.mcp.call('ccd_session_mgmt', 'archive_session', { session_id: id, reason: 'Tidy up on the session board: quiet for a long while' })
+      const block = res.content.find(c => c.type === 'text') as { text: string } | undefined
+      ok = !res.isError
+      why = block?.text ?? ''
+    } catch (err) {
+      why = String(err)
+    }
+    if (ok) {
+      done.push(id)
+      refusedInRow = 0
+    } else {
+      failed.push(`${id}: ${why.slice(0, 80)}`)
+      refusedInRow += 1
+      if (refusedInRow >= 3) break
+    }
+  }
+  // the board shows them archived at once; the next index confirms it
+  const gone = new Set(done)
+  const ix = await readIndex($)
+  if (gone.size) await setIndex($, ix.sessions.map(s => (gone.has(s.id) ? { ...s, archived: true } : s)), ix.at, ix.note, false, false)
+  const left = ids.length - done.length - failed.length
+  $.ui.toast(`Archived ${done.length}${failed.length ? `, ${failed.length} not (${failed[0]})` : ''}${left ? `, stopped before ${left} more` : ''}`)
 }
 
 export async function openFile($: $T, path: string): Promise<void> {
