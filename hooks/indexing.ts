@@ -181,10 +181,15 @@ async function loadProjectNames($: $T): Promise<void> {
   }
 }
 
-export async function openBoard($: $T): Promise<void> {
+/**
+ * Opens the board. `isAsked`: you asked for it (the button, /board), which
+ * also undoes an earlier close of yours.
+ */
+export async function openBoard($: $T, isAsked = false): Promise<void> {
+  if (isAsked) live.wantsBoard = true
   // A session nobody is looking at has no surface: opening a pane there only
-  // writes a "no surface is attached" line into its chat. session.attach opens
-  // it once a window does attach.
+  // writes a "no surface is attached" line into its chat. It opens once the
+  // session is shown (its prompt band is drawn, or a window attaches).
   if ((await $.session.surfaces()).length === 0) return
   await loadProjectNames($)
   await loadSnapshot($)

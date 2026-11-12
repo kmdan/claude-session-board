@@ -44,12 +44,16 @@ export const register: Register = on => {
 
   on('command.run', { command: 'board' }, async $ => {
     logUse('board-open', { via: 'command' })
-    await openBoard($)
+    await openBoard($, true)
     return { text: 'Session board opened.' }
   })
 
   on('ui.close', async ($, e, next) => {
-    if (e.id === PANE) live.isShown = false
+    if (e.id === PANE) {
+      live.isShown = false
+      // your own close (its mark, Escape): not opened again unasked in this session
+      if (e.origin?.kind === 'person') live.wantsBoard = false
+    }
     return next(e)
   })
 
@@ -57,13 +61,20 @@ export const register: Register = on => {
   // for it); the band above the prompt is the nearest place. The button is
   // always there: the app can hide the board without telling the plugin.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    // The band is drawn when the session is shown. A session that started (or
+    // reloaded) with no window has no board yet, and switching to it in the app
+    // sends no other sign: it opens here, unless you closed it in this session.
+    if (!live.isShown && live.wantsBoard && Date.now() - live.lastOpenTry > 10_000) {
+      live.lastOpenTry = Date.now()
+      background($, openBoard($))
+    }
     if (e.props.hasSurvey) return next(e)
     const { Box, Button } = $.ui.resolve(e)
     return (
       <Box>
         <Button key="open-board" plain onPress={() => {
           logUse('board-open', { via: 'band-button' })
-          background($, openBoard($))
+          background($, openBoard($, true))
         }}>▦ Sessions</Button>
       </Box>
     )

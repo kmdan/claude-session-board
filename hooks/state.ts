@@ -135,6 +135,10 @@ export const live = {
   // installed everywhere, ten open sessions must not all index every 2 minutes.
   // A reload starts it false and the next draw sets it again.
   isShown: false,
+  // false once you closed the board in this session: it is not opened again unasked
+  wantsBoard: true,
+  // when a shown session last tried to open the board unasked (tries are spaced out)
+  lastOpenTry: 0,
   // the search field's latest text, while the board waits for a pause in typing
   typedQuery: '',
   // the last placement this board drew; a reload starts it empty (no glow then)

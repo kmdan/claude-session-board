@@ -550,6 +550,28 @@ test('a session nobody is looking at opens no pane and writes no line in its cha
   }
 })
 
+test('a session that started with no window opens the board when it is shown', async ($, on) => {
+  engine(on)
+  const before = opened
+  surfaces = []
+  try {
+    await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+    expect(opened).toBe(before)
+    // switching to it in the app attaches nothing new; its prompt band is drawn
+    surfaces = ['desktop']
+    const band = await $.ui.mount(BAND)
+    await new Promise(done => setTimeout(done, 50))
+    expect(opened).toBe(before + 1)
+    // drawn again, open now: no second open
+    await band.redraw()
+    await new Promise(done => setTimeout(done, 50))
+    expect(opened).toBe(before + 1)
+    await band.unmount()
+  } finally {
+    surfaces = ['desktop']
+  }
+})
+
 test('the 20-second check redraws only when a record really differs', async ($, on) => {
   const clock = mock.clock(on, { now: Date.now() })
   await start($, on, undefined, undefined, false)
