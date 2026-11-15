@@ -4,7 +4,7 @@ import { ago, baseName, dueBucket, dueWord, isWorking, overlaps, projectColor, p
 import {
   addTodo, editNotes, mark, markAnswered, markSeen, openFile, openSession, reveal, sendNote, startFromTodo, toggleDone,
 } from './actions'
-import { ACCENT, chipOf, DOT, HERE, PULSE_WORKING, READY, stateWord, WORKING } from './draw'
+import { ACCENT, chipOf, DOT, HERE, PULSE_WORKING, READY, short, stateWord, WORKING } from './draw'
 import type { Drawing } from './draw'
 import { background, INBOX, live } from './state'
 import type { $T } from './state'
@@ -159,10 +159,15 @@ export function makeCards($: $T, d: Drawing) {
           : <Text color={waitsForYou(c) ? READY : DOT[cs]}>●</Text>}
         {/* the subsession you are in, marked as on a line and a card */}
         {here && c.id === here.id && <Text color={HERE}> ◉</Text>}
-        <Button key={`sl-${path}>${c.id}`} plain onPress={() => background($, openSession($, c.id, 'sub-line'))}>
-          <Text> {c.title}</Text>
-        </Button>
-        <Text color={asks ? ACCENT : undefined} dimColor={!asks}> {word ? `${word} · ` : ''}{ago(now - c.last)}</Text>
+        {/* in a narrow pane the title gives way (cut with "…"); what it does and its age stay on one line */}
+        <Box flexShrink={1} minWidth={0} overflow="hidden">
+          <Button key={`sl-${path}>${c.id}`} plain onPress={() => background($, openSession($, c.id, 'sub-line'))}>
+            <Text wrap="truncate-end"> {c.title}</Text>
+          </Button>
+        </Box>
+        <Box flexShrink={0}>
+          <Text color={asks ? ACCENT : undefined} dimColor={!asks} wrap="truncate-end"> {word ? `${word} · ` : ''}{ago(now - c.last)}</Text>
+        </Box>
       </Box>
     )
   }
@@ -441,21 +446,24 @@ export function makeCards($: $T, d: Drawing) {
         <Button key={`u-${s.id}`} plain onPress={unfold}>▸</Button>
         {/* the session you are in, in its usual place: marked, as on its card */}
         {here && s.id === here.id && <Text color={HERE}>◉</Text>}
-        <Box flexGrow={1} flexShrink={1}>
+        {/* in a narrow pane the title gives way (cut with "…"); the right side never wraps */}
+        <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
           <Button key={`t-${s.id}`} plain onPress={() => background($, openSession($, s.id, 'line-title'))}>
-            <Text bold={isUnseen(s)}>{s.title}</Text>
+            <Text bold={isUnseen(s)} wrap="truncate-end">{s.title}</Text>
             {kids > 0 && <Text dimColor>  +{kids}{reports ? ` ↩${reports}` : ''}</Text>}
           </Button>
         </Box>
-        {/* a one-off scratch folder shows as its chip: the dated name wrapped the line */}
-        {withTag && <Text color={projectColor(s.project)} wrap="truncate-end">{projectLabel(chipOf(s.project))}</Text>}
-        <Text dimColor>{ago(now - s.last)}</Text>
-        {/* quick marks without unfolding: done, park (undo: the card's Auto button) */}
-        <Button key={`rd-${s.id}`} plain dimColor onPress={() => background($, mark($, s.id, 'done', s.title, 'line'))}>✓</Button>
-        <Button key={`rp-${s.id}`} plain dimColor onPress={() => background($, mark($, s.id, 'parked', s.title, 'line'))}>⏸</Button>
-        <Button key={`go-${s.id}`} plain onPress={() => background($, openSession($, s.id, 'line-arrow'))}>
-          {opening === s.id ? <Text color={ACCENT}>opening…</Text> : <Text dimColor>↗</Text>}
-        </Button>
+        <Box flexDirection="row" gap={1} flexShrink={0} alignItems="center">
+          {/* a one-off scratch folder shows as its chip: the dated name wrapped the line */}
+          {withTag && <Text color={projectColor(s.project)} wrap="truncate-end">{short(projectLabel(chipOf(s.project)), narrow ? 10 : 18)}</Text>}
+          <Text dimColor>{ago(now - s.last)}</Text>
+          {/* quick marks without unfolding: done, park (undo: the card's Auto button) */}
+          <Button key={`rd-${s.id}`} plain dimColor onPress={() => background($, mark($, s.id, 'done', s.title, 'line'))}>✓</Button>
+          <Button key={`rp-${s.id}`} plain dimColor onPress={() => background($, mark($, s.id, 'parked', s.title, 'line'))}>⏸</Button>
+          <Button key={`go-${s.id}`} plain onPress={() => background($, openSession($, s.id, 'line-arrow'))}>
+            {opening === s.id ? <Text color={ACCENT}>opening…</Text> : <Text dimColor>↗</Text>}
+          </Button>
+        </Box>
       </Box>
     )
   }
