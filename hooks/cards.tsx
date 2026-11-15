@@ -179,11 +179,21 @@ export function makeCards($: $T, d: Drawing) {
     return live.filter(c => isUrgent(c) || others.includes(c))
   }
 
-  // Under a card, open or not: the live subsessions as lines, the rest behind
-  // one "N more". Under Here, a main session shows only your subsession, as a
-  // card (its siblings are in the board below); your own session shows its
-  // subsessions as any card does.
-  const children = (s: Sess, depth: number, path: string) => {
+  // A session's subsessions and theirs, a line each, each level indented further,
+  // as the app's own sidebar lists them. `skip`: one drawn as a card instead.
+  const familyLines = (s: Sess, path: string, indent: number, skip: (c: Sess) => boolean): ReturnType<typeof subLine>[] => {
+    const kids = (kidsOf.get(s.id) ?? []).filter(c => !skip(c))
+    return kids.flatMap((c, i) => [
+      subLine(c, path, i === kids.length - 1, indent),
+      ...(indent < 12 ? familyLines(c, `${path}>${c.id}`, indent + 2, skip) : []),
+    ])
+  }
+
+  // Under a card: the live subsessions as lines, the rest behind one "N more".
+  // Unfolded (or "N more" pressed): all of them, at every level. Under Here, a
+  // main session shows only your subsession, as a card (its siblings are in the
+  // board below); your own session shows its subsessions as any card does.
+  const children = (s: Sess, depth: number, path: string, isOpen = false) => {
     const kids = kidsOf.get(s.id) ?? []
     const isHereFamily = path.startsWith('@')
     if (kids.length === 0 || depth >= 3) return null
@@ -199,7 +209,8 @@ export function makeCards($: $T, d: Drawing) {
     }
     const hereKid = kids.find(isHereKid)
     const others = kids.filter(c => !isHereKid(c))
-    const lines = ui.shown[`kids-${path}`] ? others : liveKids(s).filter(c => !isHereKid(c))
+    const showAll = isOpen || !!ui.shown[`kids-${path}`]
+    const lines = showAll ? others : liveKids(s).filter(c => !isHereKid(c))
     const folded = others.length - lines.length
     const hasMore = folded > 0 && (depth === 0 || isHereFamily)
     if (!hereKid && lines.length === 0 && !hasMore) return null
@@ -211,7 +222,9 @@ export function makeCards($: $T, d: Drawing) {
             {card(hereKid, true, depth + 1, `${path}>${hereKid.id}`)}
           </Box>
         )}
-        {lines.map((c, i) => subLine(c, path, i === lines.length - 1 && !hasMore))}
+        {showAll
+          ? familyLines(s, path, 2, isHereKid)
+          : lines.map((c, i) => subLine(c, path, i === lines.length - 1 && !hasMore))}
         {hasMore && (
           <Box marginLeft={2}>
             <Button key={`km-${path}`} plain onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, [`kids-${path}`]: true } }))}>
@@ -334,7 +347,7 @@ export function makeCards($: $T, d: Drawing) {
             <Text color={ACCENT}>→ {s.needs}</Text>
           </Button>
         )}
-        {children(s, depth, path)}
+        {children(s, depth, path, isOpen)}
         {isOpen && (
           <Box flexDirection="column" marginTop={1}>
             {s.detail !== '' && <Text>{s.detail}</Text>}

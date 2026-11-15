@@ -939,6 +939,7 @@ test('subsessions are the same short lines under cards and under by-state lines;
     ...saved,
     sess('Docs spelling', { project: 'api', parent: 'Docs audit' }),
     sess('Parser old try', { last: NOW - 40 * 24 * H, parent: 'Parser rewrite' }),
+    sess('Spelling old part', { project: 'api', last: NOW - 40 * 24 * H, parent: 'Docs spelling' }),
   ]
   for (const k of Object.keys(disk)) delete disk[k]
   try {
@@ -957,6 +958,11 @@ test('subsessions are the same short lines under cards and under by-state lines;
     expect(await ui.find({ key: 'sl-Parser rewrite>Parser old try' })).toBeUndefined()
     await ui.press({ key: 'km-Parser rewrite' })
     expect(await ui.find({ key: 'sl-Parser rewrite>Parser old try' })).toBeDefined()
+    // unfolding a line shows its whole family, every level, as the app's sidebar does
+    expect(await ui.find({ key: 'sl-Docs audit>Docs spelling>Spelling old part' })).toBeUndefined()
+    await ui.press({ key: 'u-Docs audit' })
+    expect(await ui.find({ key: 'sl-Docs audit>Docs spelling' })).toBeDefined()
+    expect(await ui.find({ key: 'sl-Docs audit>Docs spelling>Spelling old part' })).toBeDefined()
     await ui.unmount()
   } finally {
     INDEX.sessions = saved
