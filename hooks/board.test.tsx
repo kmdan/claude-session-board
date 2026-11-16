@@ -60,7 +60,8 @@ let quickRows: Record<string, unknown>[] = [] // what the 20-second check finds 
 let draws = 0 // a drawing reads the trail once: how often the board was drawn
 const archived: string[] = [] // sessions the app was asked to archive
 // what the indexer says of the Here session's working copy (empty: not a repo)
-let gitState: Record<string, unknown> = { branch: 'main', ahead: 1, behind: 0, plus: 14972, minus: 52, files: 34 }
+const GIT = { branch: 'main', ahead: 1, behind: 0, plus: 1234, minus: 56, files: 7 }
+let gitState: Record<string, unknown> = GIT
 let closed = 0
 // what the app reports of the board's pane: none, or one it keeps open but hidden
 let panes: { id: string; title: string; isShown: boolean; isFocused: boolean; isPlaced: boolean }[] = []
@@ -566,17 +567,33 @@ test('the top line is the session you are in: project, branch, its changes, its 
     await ui.redraw()
     expect(await ui.find({ type: 'Text', text: /^● webapp$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '⎇ main ↑1' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: '+14,972 −52' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '+1,234 −56' })).toBeDefined()
     // the folder's last parts, not the whole path
     expect(await ui.find({ type: 'Text', text: '…\\code\\projects\\webapp' })).toBeDefined()
     await ui.unmount()
-    // not a repo: no branch and no changes, just the project and folder
-    gitState = {}
-    const plain = await $.ui.mount({ ...PANE, surface: 'terminal' })
-    expect(await plain.find({ type: 'Text', text: /^⎇/ })).toBeDefined() // still the last numbers: re-read at most every 30 s
-    await plain.unmount()
   } finally {
-    gitState = { branch: 'main', ahead: 1, behind: 0, plus: 14972, minus: 52, files: 34 }
+    INDEX.sessions = saved
+    for (const k of Object.keys(disk)) delete disk[k]
+  }
+})
+
+test('a session outside a git repo shows just its project and folder on the top line', async ($, on) => {
+  const saved = INDEX.sessions
+  INDEX.sessions = [sess('Loose files', { cwd: 'C:\\scratch\\notes' })] as any
+  for (const k of Object.keys(disk)) delete disk[k]
+  gitState = {}
+  try {
+    await start($, on, {}, 'cli-Loose files')
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    await new Promise(done => setTimeout(done, 50))
+    await ui.redraw()
+    expect(await ui.find({ type: 'Text', text: /^● webapp$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'C:\\scratch\\notes' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^⎇/ })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /no changes|^\+/ })).toBeUndefined()
+    await ui.unmount()
+  } finally {
+    gitState = GIT
     INDEX.sessions = saved
     for (const k of Object.keys(disk)) delete disk[k]
   }

@@ -6,6 +6,10 @@ lot of sessions at once and lose track of them, ADHD brains included.
 
 ## What it shows
 
+- **The top line**: the session you are in, as the app's Environment box has
+  it: project, branch (ahead / behind), lines added and removed (new files
+  counted), context fill, and its folder. Read with git every 30 seconds while
+  the board is shown.
 - **Here**: the session you are in, pinned at the top.
 - **Needs you**: everything you touched today and did not close, and anything
   that started asking for you in the last day. A session that just asked
@@ -109,7 +113,7 @@ py -3 scripts/usage_report.py --days 14
 
 The board is a Claude Code mod, in `hooks/`:
 
-- `register.tsx`: the hooks and the board's frame (counts, search, tabs)
+- `register.tsx`: the hooks and the board's frame (the top line, search, tabs)
 - `views.tsx`: the sections and views; `cards.tsx`: a session's card and line
 - `draw.ts`: what one drawing reads and works out, and the colours
 - `state.ts`: the shared values and the index in memory (only this file touches the atoms)

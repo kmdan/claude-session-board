@@ -438,8 +438,9 @@ def git_state(cwd):
         head = git("status", "--porcelain=v1", "-b", "--untracked-files=no").splitlines()[0]
     except (OSError, IndexError, subprocess.SubprocessError):
         return {}
-    # "## main...origin/main [ahead 1, behind 2]" or "## main" or "## HEAD (no branch)"
-    m = re.match(r"## (?:No commits yet on )?([^.\s]+)(?:\.\.\.\S+)?(?: \[(.*)\])?", head)
+    # "## main...origin/main [ahead 1, behind 2]", "## release/1.2", "## HEAD (no branch)";
+    # a branch name may hold dots but never "...", which starts the upstream
+    m = re.match(r"## (?:No commits yet on )?(\S+?)(?:\.\.\.\S+)?(?: \[(.*)\])?$", head)
     branch = m.group(1) if m else ""
     ahead = behind = 0
     if m and m.group(2):
@@ -456,15 +457,23 @@ def git_state(cwd):
         new = [f for f in git("ls-files", "--others", "--exclude-standard", "-z").split("\0") if f]
     except (OSError, subprocess.SubprocessError):
         new = []
+    # new files: counted, and their lines read, first 8 KB to skip binaries; at most
+    # 2000 files and 50 MB in all, so a folder full of new caches stays quick
+    budget = 50_000_000
     for f in new:
         files += 1
+        if files > 2000 or budget <= 0:
+            continue
         try:
             with open(os.path.join(cwd, f), "rb") as fh:
-                data = fh.read(20_000_000)
+                start = fh.read(8000)
+                if b"\0" in start:
+                    continue
+                data = start + fh.read(max(0, min(budget, 20_000_000) - len(start)))
         except OSError:
             continue
-        if b"\0" not in data[:8000]:
-            plus += data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
+        budget -= len(data)
+        plus += data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
     return {"branch": branch, "ahead": ahead, "behind": behind, "plus": plus, "minus": minus, "files": files}
 
 

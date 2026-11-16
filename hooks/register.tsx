@@ -10,7 +10,7 @@ const REMOVED = '#d06a6a'
 import { stepTrail } from './actions'
 import { makeCards } from './cards'
 import { PULSE_WORKING, READY, readDrawing, short } from './draw'
-import { openBoard, quickTick, refresh, searchText, tick } from './indexing'
+import { openBoard, quickTick, refresh, refreshHereInfo, searchText, tick } from './indexing'
 import { background, flushUse, live, logUse, PANE } from './state'
 import { makeViews } from './views'
 
@@ -22,6 +22,8 @@ export const register: Register = on => {
     await $.command.register({ name: 'board', description: 'Open the session board' })
     $.clock.every(20_000, () => {
       background($, quickTick($))
+      // the top line's branch and changes follow a commit made with no click on the board
+      if (live.isShown && live.hereInfoCwd) background($, refreshHereInfo($, live.hereInfoCwd))
     })
     $.clock.every(120_000, () => {
       background($, tick($))
