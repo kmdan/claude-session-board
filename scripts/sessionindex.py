@@ -420,8 +420,59 @@ def write_cache(cache_path, new_cache):
                 pass
 
 
+def git_state(cwd):
+    """
+    A working copy's state as the app's Changes box counts it: branch, ahead /
+    behind its upstream, and lines added / removed against HEAD, the lines of new
+    (untracked, not ignored) text files counted as added. Empty when not a repo.
+    """
+    import subprocess
+
+    def git(*args):
+        run = subprocess.run(["git", "-C", cwd, *args], capture_output=True, timeout=20)
+        if run.returncode != 0:
+            raise OSError(run.stderr.decode("utf-8", "replace")[:200])
+        return run.stdout.decode("utf-8", "replace")
+
+    try:
+        head = git("status", "--porcelain=v1", "-b", "--untracked-files=no").splitlines()[0]
+    except (OSError, IndexError, subprocess.SubprocessError):
+        return {}
+    # "## main...origin/main [ahead 1, behind 2]" or "## main" or "## HEAD (no branch)"
+    m = re.match(r"## (?:No commits yet on )?([^.\s]+)(?:\.\.\.\S+)?(?: \[(.*)\])?", head)
+    branch = m.group(1) if m else ""
+    ahead = behind = 0
+    if m and m.group(2):
+        a = re.search(r"ahead (\d+)", m.group(2))
+        b = re.search(r"behind (\d+)", m.group(2))
+        ahead, behind = int(a.group(1)) if a else 0, int(b.group(1)) if b else 0
+    plus = minus = files = 0
+    try:
+        for line in git("diff", "--numstat", "HEAD").splitlines():
+            p, d, _ = (line.split("\t") + ["", "", ""])[:3]
+            files += 1
+            plus += int(p) if p.isdigit() else 0
+            minus += int(d) if d.isdigit() else 0
+        new = [f for f in git("ls-files", "--others", "--exclude-standard", "-z").split("\0") if f]
+    except (OSError, subprocess.SubprocessError):
+        new = []
+    for f in new:
+        files += 1
+        try:
+            with open(os.path.join(cwd, f), "rb") as fh:
+                data = fh.read(20_000_000)
+        except OSError:
+            continue
+        if b"\0" not in data[:8000]:
+            plus += data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
+    return {"branch": branch, "ahead": ahead, "behind": behind, "plus": plus, "minus": minus, "files": files}
+
+
 def main():
     t0 = time.time()
+    if sys.argv[1] == "--git":
+        sys.stdout.buffer.write(json.dumps(git_state(sys.argv[2]), ensure_ascii=True).encode("ascii"))
+        return
     if sys.argv[1] == "--search":
         query = sys.stdin.buffer.read().decode("utf-8")
         sys.stdout.buffer.write(json.dumps(search(sys.argv[2], query), ensure_ascii=True).encode("ascii"))

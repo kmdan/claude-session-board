@@ -1,9 +1,11 @@
 // Getting the sessions: the indexer, the shared snapshot, the 20-second and
 // 2-minute checks, the full-text search, and opening the board's pane.
-import type { Sess, TextHit } from '../types'
+import type { HereInfo, Sess, TextHit } from '../types'
 import { isWorking, setProjectNames } from './board'
 import type { ProjectNames } from './board'
-import { background, live, loadStored, PANE, readIndex, setIndex, TITLE, updateFullText, updateIndexMeta } from './state'
+import {
+  background, live, loadStored, PANE, readIndex, setHereInfo, setIndex, TITLE, updateFullText, updateIndexMeta,
+} from './state'
 import type { $T } from './state'
 
 /**
@@ -170,6 +172,33 @@ async function openFresh($: $T): Promise<void> {
   const stat = await $.fs.stat(`${$.plugin.root}/cache/snapshot.json`).catch(() => undefined)
   if (stat && Date.now() - stat.mtimeMs < 110_000) await loadSnapshot($, true)
   else await refresh($)
+}
+
+/**
+ * The top line's facts for the session this board is drawn in: its working
+ * copy's branch and changes (git, through the indexer: a second or less) and how
+ * full its context is. At most every 30 seconds per folder, and only while the
+ * board is shown; not a repo, or git missing, leaves just the folder.
+ */
+export async function refreshHereInfo($: $T, cwd: string): Promise<void> {
+  if (!cwd || (cwd === live.hereInfoCwd && Date.now() - live.hereInfoAt < 30_000)) return
+  live.hereInfoCwd = cwd
+  live.hereInfoAt = Date.now()
+  let git: Partial<HereInfo> = {}
+  try {
+    const run = await $.process.run(['py', '-3', `${$.plugin.root}/scripts/sessionindex.py`, '--git', cwd], { timeoutMs: 30_000 })
+    if (run.exitCode === 0 && run.stdout.trim()) git = JSON.parse(run.stdout) as Partial<HereInfo>
+  } catch {
+    // no git state: the folder alone
+  }
+  let context: number | undefined
+  try {
+    const p = (await $.session.usage()).context?.percent
+    context = typeof p === 'number' ? Math.round(p) : undefined
+  } catch {
+    // not known here
+  }
+  await setHereInfo($, { cwd, ...git, ...(context === undefined ? {} : { context }) })
 }
 
 /** Your own short names and colours for project folders, if a projects.json is there. */

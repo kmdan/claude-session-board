@@ -145,6 +145,23 @@ export type FullText = {
   note: string
 }
 
+/**
+ * The session this board is drawn in, as the top line shows it: its working
+ * copy's branch, ahead/behind, lines added/removed (new files counted), and how
+ * full its context is. `cwd` says whose; empty fields when not a git repo.
+ */
+export type HereInfo = {
+  cwd: string
+  branch?: string
+  ahead?: number
+  behind?: number
+  plus?: number
+  minus?: number
+  files?: number
+  /** percent of the context window in use, when known */
+  context?: number
+}
+
 /** Sessions that just moved or changed state, and how bright their glow still is (3 = brightest). */
 export type Moved = Record<string, number>
 
@@ -157,6 +174,7 @@ declare module 'claude-code' {
       answered: Answered
       drafts: Drafts
       seen: Record<string, number>
+      hereInfo: HereInfo
     }
   }
 }

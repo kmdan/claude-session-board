@@ -3,7 +3,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { Answered, FullText, Index, IndexMeta, Marks, Moved, Notes, Sess, Ui } from '../types'
+import type { Answered, FullText, HereInfo, Index, IndexMeta, Marks, Moved, Notes, Sess, Ui } from '../types'
 import { byRecent, chatAnswers, pageSig, stateOf } from './board'
 import type { State } from './board'
 
@@ -33,10 +33,18 @@ const openingAtom = atom({ plugin: 'session-board', key: 'opening' } as const, '
 const answeredAtom = atom({ plugin: 'session-board', key: 'answered' } as const, {} as Answered)
 // per session, when you last opened its card or the session: a newer ask pulses
 const seenAtom = atom({ plugin: 'session-board', key: 'seen' } as const, {} as Record<string, number>)
+// the top line: this session's branch, changes and context fill
+const hereInfoAtom = atom({ plugin: 'session-board', key: 'hereInfo' } as const, { cwd: '' } as HereInfo)
+
+/** Takes a new top line; the same numbers again write nothing (and redraw nothing). */
+export async function setHereInfo($: $T, next: HereInfo): Promise<void> {
+  await update($, hereInfoAtom, cur => (JSON.stringify(cur) === JSON.stringify(next) ? cur : next))
+}
 
 /** Every shared value a drawing shows; reading them here subscribes the drawing to them. */
 export async function readShared($: $T) {
   return {
+    hereInfo: (await read($, hereInfoAtom)) ?? { cwd: '' },
     ui: await read($, uiAtom),
     marks: (await read($, marksAtom)) ?? {},
     notes: (await read($, notesAtom)) ?? {},
@@ -139,6 +147,9 @@ export const live = {
   wantsBoard: true,
   // when a shown session last tried to open the board unasked (tries are spaced out)
   lastOpenTry: 0,
+  // when the top line's git state was last read, and for which folder
+  hereInfoAt: 0,
+  hereInfoCwd: '',
   // the search field's latest text, while the board waits for a pause in typing
   typedQuery: '',
   // the last placement this board drew; a reload starts it empty (no glow then)

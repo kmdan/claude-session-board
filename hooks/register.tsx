@@ -3,10 +3,13 @@
 // reads, state.ts and indexing.ts keep the sessions, actions.ts is what buttons do.
 import type { Register } from 'claude-code'
 
-import { projectLabel } from './board'
+import { projectColor, projectLabel } from './board'
+
+// lines removed, as the app's Changes box shows them
+const REMOVED = '#d06a6a'
 import { stepTrail } from './actions'
 import { makeCards } from './cards'
-import { ACCENT, PULSE_WORKING, READY, readDrawing, short } from './draw'
+import { PULSE_WORKING, READY, readDrawing, short } from './draw'
 import { openBoard, quickTick, refresh, searchText, tick } from './indexing'
 import { background, flushUse, live, logUse, PANE } from './state'
 import { makeViews } from './views'
@@ -84,20 +87,37 @@ export const register: Register = on => {
     const d = await readDrawing($, e)
     const { Box, Text, Button, Input } = d.table
     const {
-      Svg, narrow, ix, ui, setUi, byId, here, topLevel, groups, dueToday, asking, unseenCount, trail, backTo, recentTrail, chips,
+      Svg, narrow, ix, ui, setUi, byId, here, dueToday, trail, backTo, recentTrail, chips,
     } = d
     const view = makeViews($, d, makeCards($, d))
+    // The top line: the session you are in, as the app's Environment box has it:
+    // project, branch (ahead/behind), its changes (new files counted), context fill,
+    // and its folder. Numbers for another folder (a moment after switching) wait.
+    const info = here && d.hereInfo.cwd === here.cwd ? d.hereInfo : undefined
+    const num = (n: number) => n.toLocaleString('en-US')
+    // the folder's last parts, so a long path never wraps the top
+    const parts = (here?.cwd ?? '').split(/[\\/]/).filter(Boolean)
+    const folder = parts.length > 3 ? `…\\${parts.slice(-(narrow ? 2 : 3)).join('\\')}` : (here?.cwd ?? '')
 
     return (
       <Box flexDirection="column" paddingX={1}>
-        {/* in a narrow pane the buttons go under the counts, not squeeze them into a column */}
+        {/* in a narrow pane the buttons go under the session's line, not squeeze it into a column */}
         <Box flexDirection="row" flexWrap="wrap" justifyContent="space-between" columnGap={2}>
-          <Text bold>
-            {topLevel(groups.need).length} need you · {topLevel(groups.waiting).length} waiting · {topLevel(groups.working).length} working · {topLevel(groups.good).length} good enough
-            {dueToday > 0 && <Text color={ACCENT}> · {dueToday} due</Text>}
-            {asking > 0 && <Text color={ACCENT}> · ? {asking}</Text>}
-            {unseenCount > 0 && <Text color={READY}> · {unseenCount} unseen</Text>}
-          </Text>
+          {here ? (
+            <Box flexDirection="column" flexShrink={1} minWidth={0}>
+              <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+                <Text bold color={projectColor(here.project)}>● {projectLabel(here.project)}</Text>
+                {info?.branch && (
+                  <Text>⎇ {info.branch}{info.ahead ? ` ↑${info.ahead}` : ''}{info.behind ? ` ↓${info.behind}` : ''}</Text>
+                )}
+                {info?.branch !== undefined && ((info.plus ?? 0) + (info.minus ?? 0) > 0
+                  ? <Text><Text color={READY}>+{num(info.plus ?? 0)}</Text> <Text color={REMOVED}>−{num(info.minus ?? 0)}</Text></Text>
+                  : <Text dimColor>no changes</Text>)}
+                {info?.context !== undefined && <Text dimColor>context {info.context}%</Text>}
+              </Box>
+              <Text dimColor wrap="truncate-end">{folder}</Text>
+            </Box>
+          ) : <Text bold>Sessions</Text>}
           <Box flexDirection="row" gap={1} alignItems="center" flexShrink={0}>
             {/* back and forward through the sessions you were in */}
             {backTo && (

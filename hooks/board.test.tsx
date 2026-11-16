@@ -59,6 +59,8 @@ let surfaces: string[] = ['desktop'] // what draws this session: none = nobody i
 let quickRows: Record<string, unknown>[] = [] // what the 20-second check finds in the app's records
 let draws = 0 // a drawing reads the trail once: how often the board was drawn
 const archived: string[] = [] // sessions the app was asked to archive
+// what the indexer says of the Here session's working copy (empty: not a repo)
+let gitState: Record<string, unknown> = { branch: 'main', ahead: 1, behind: 0, plus: 14972, minus: 52, files: 34 }
 let closed = 0
 // what the app reports of the board's pane: none, or one it keeps open but hidden
 let panes: { id: string; title: string; isShown: boolean; isFocused: boolean; isPlaced: boolean }[] = []
@@ -122,6 +124,8 @@ function engine(on: any, store: Record<string, unknown> = {}, self = 'cli-elsewh
     if (isIndexer && e.argv[3] === '--search') {
       searched.push(String(e.stdin ?? e.init?.stdin))
       stdout = JSON.stringify({ hits: [{ cli: 'cli-Old probe', count: 4, snip: '…the flaky timeout came back…' }], files: 5, ms: 3 })
+    } else if (isIndexer && e.argv[3] === '--git') {
+      stdout = JSON.stringify(gitState)
     } else if (isIndexer && e.argv[3] === '--quick') {
       stdout = JSON.stringify({ rows: quickRows, written: {} })
     } else if (isIndexer) stdout = JSON.stringify(INDEX)
@@ -550,6 +554,34 @@ test('a session nobody is looking at opens no pane and writes no line in its cha
   }
 })
 
+test('the top line is the session you are in: project, branch, its changes, its folder', async ($, on) => {
+  const saved = INDEX.sessions
+  INDEX.sessions = [sess('Repo work', { cwd: 'C:\\Users\\someone\\code\\projects\\webapp' })] as any
+  for (const k of Object.keys(disk)) delete disk[k]
+  try {
+    await start($, on, {}, 'cli-Repo work')
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    // the git state is read behind the first drawing
+    await new Promise(done => setTimeout(done, 50))
+    await ui.redraw()
+    expect(await ui.find({ type: 'Text', text: /^● webapp$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '⎇ main ↑1' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '+14,972 −52' })).toBeDefined()
+    // the folder's last parts, not the whole path
+    expect(await ui.find({ type: 'Text', text: '…\\code\\projects\\webapp' })).toBeDefined()
+    await ui.unmount()
+    // not a repo: no branch and no changes, just the project and folder
+    gitState = {}
+    const plain = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    expect(await plain.find({ type: 'Text', text: /^⎇/ })).toBeDefined() // still the last numbers: re-read at most every 30 s
+    await plain.unmount()
+  } finally {
+    gitState = { branch: 'main', ahead: 1, behind: 0, plus: 14972, minus: 52, files: 34 }
+    INDEX.sessions = saved
+    for (const k of Object.keys(disk)) delete disk[k]
+  }
+})
+
 test('a session that started with no window opens the board when it is shown', async ($, on) => {
   engine(on)
   const before = opened
@@ -690,7 +722,7 @@ test('the watched session is on top under Here and stays in its own place too; i
   // by state: still in Working, where it was
   expect(await ui.find({ key: 'row-Docs audit' })).toBeDefined()
   // and counted there: Docs audit is the one working session
-  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toMatch(/ · 1 working · /)
+  expect(await ui.find({ type: 'Text', text: /^Working 1(?!\d)/ })).toBeDefined()
   // by project: its project (api) is first, though webapp moved as recently
   await ui.press({ key: 'by-project' })
   expect(await ui.find({ key: 'row-Docs audit' })).toBeDefined()
@@ -852,7 +884,9 @@ test('the board sorts sessions into needs-you, working and parked, on every surf
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('1 need you · 1 waiting · 1 working · 0 good enough · ? 1 · 2 unseen')
+    // the old counts line is gone: no Here here, so the top says only "Sessions"
+    expect(await ui.find({ type: 'Text', text: /need you ·/ })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /^Sessions$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^Needs you 1(?!\d)/ })).toBeDefined()
     expect((await ui.find({ key: 'show-waiting' }) as any)?.props?.label).toBe('Still waiting on you, 1-7 days · 1 ▾')
     expect(await ui.find({ type: 'Text', text: /^Working 1(?!\d)/ })).toBeDefined()
@@ -880,7 +914,7 @@ test('marking a session good enough moves it, and the files overlap shows', asyn
 
   // good enough: out of Needs you, into the folded Good enough
   await ui.press({ key: 'g-Parser rewrite' })
-  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toBe('0 need you · 1 waiting · 1 working · 1 good enough · ? 1 · 1 unseen')
+  expect(await ui.find({ type: 'Text', text: /^Needs you \d/ })).toBeUndefined()
   expect((await ui.find({ key: 'show-good' }) as any)?.props?.label).toBe('Good enough · 1 ▾')
   await ui.unmount()
 })
@@ -1083,14 +1117,13 @@ test('a session that finished since you last looked says unseen, until you open 
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   // Parser rewrite finished an hour ago and was never looked at; its subsession asks too
-  // said by the border and the header count, not a word on the card
+  // said by the border, not a word on the card
   expect(await ui.find({ type: 'Text', text: /unseen · / })).toBeUndefined()
-  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toMatch(/· 2 unseen$/)
   // its whole card is outlined green, not only its dot
   expect((await ui.find({ key: 'c-Parser rewrite' }))?.props?.borderColor).toBe('#5fae6e')
   await ui.press({ key: 't-Parser rewrite' })
   await ui.press({ key: 't-Parser rewrite' })
-  expect((await ui.find({ type: 'Text', text: /need you/ }))?.text).toMatch(/· 1 unseen$/)
+  // opened once: seen, the green outline goes (and stays gone once folded again)
   expect((await ui.find({ key: 'c-Parser rewrite' }))?.props?.borderColor).not.toBe('#5fae6e')
   await ui.unmount()
 })

@@ -4,6 +4,7 @@ import type { Note, QPage, Sess, Ui } from '../types'
 import { byRecent, chatAnswers, dueBucket, isAsking, isOpenPage, isWorking, relatedFinder, stateOf } from './board'
 import type { Related, State } from './board'
 import { trailOf } from './actions'
+import { refreshHereInfo } from './indexing'
 import { background, GLOW, INBOX, live, readIndex, readShared, updateUi } from './state'
 import type { $T } from './state'
 
@@ -69,8 +70,6 @@ let lists = {
   sorted: [] as Sess[],
   /** children by parent, newest first; archived ones only when you are in one */
   kidsOf: new Map<string, Sess[]>(),
-  /** what the header's "? N" has to look through */
-  withQuestions: [] as Sess[],
   /** the sessions you were in, last looked at first: what ‹ steps back through */
   byTouched: [] as Sess[],
 }
@@ -92,7 +91,6 @@ function listsOf(all: Sess[]) {
     byCli: new Map(all.map(s => [s.cli, s])),
     sorted,
     kidsOf,
-    withQuestions: all.filter(s => !s.archived && s.questions.length > 0),
     byTouched: all.filter(s => !s.archived && (s.touched ?? 0) > 0).sort((a, b) => (b.touched ?? 0) - (a.touched ?? 0)),
   }
   return lists
@@ -115,13 +113,13 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
   // how many rows the pane shows at once: a list standing alone fills them
   const bodyRows = (e.props as { scroll?: { bodyRows?: number } }).scroll?.bodyRows ?? 40
   const ix = await readIndex($)
-  const { ui, marks, notes, moved, opening, answered, seen, fullText } = await readShared($)
+  const { ui, marks, notes, moved, opening, answered, seen, fullText, hereInfo } = await readShared($)
   const now = Date.now()
 
   const setUi = (fn: (u: Ui) => Ui) => background($, updateUi($, fn))
   const all = ix.sessions
   selfCli ??= await $.session.id()
-  const { byId, byCli, sorted, kidsOf, withQuestions, byTouched } = listsOf(all)
+  const { byId, byCli, sorted, kidsOf, byTouched } = listsOf(all)
 
   // The per-index work is done once per index, not on every drawing: a
   // drawing that takes long is what shows as a blink when sessions switch.
@@ -238,13 +236,11 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
   const allTodos: TodoRow[] = Object.entries(notes).flatMap(([owner, list]) =>
     list.map(n => ({ owner, n, s: owner === INBOX ? undefined : byId.get(owner) })))
   const dueToday = allTodos.filter(r => !r.n.done && ['overdue', 'today'].includes(dueBucket(r.n.due, now))).length
-  // sessions with unanswered question pages written in the last two weeks (older ones are history)
-  const asking = withQuestions.filter(s => openPages(s).some(p => now - p.t < 14 * 86_400_000)).length
   const recentTrail = byTouched.filter(s => !here || s.id !== here.id).slice(0, 30).map(s => s.id)
   const trail = await trailOf($, here?.id)
   const backTo = trail ? trail.list[trail.pos + 1] : recentTrail[0]
-  // finished since you last looked (the app's notifications you have not opened)
-  const unseenCount = listed.filter(s => (!here || s.id !== here.id) && isUnseen(s)).length
+  // the top line: this session's git state and context, read behind the drawing
+  if (here) background($, refreshHereInfo($, here.cwd))
 
   // Tidy up: what could be archived. A family quiet a month (the session and all
   // its subsessions), or one you marked done or parked that has been quiet three
@@ -270,7 +266,7 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
     table, Svg, bodyColumns, bodyRows, narrow, ix, ui, marks, notes, moved, opening, answered, seen, fullText, now, setUi,
     all, byId, byCli, kidsOf, here, hereChain, find, chat, st,
     finishedForYou, isUnseen, waitsForYou, isFresh, hasReported, asksYou, isPageOpen, openPages, borderOf,
-    inChip, inProject, listed, groups, topLevel, chips, allTodos, dueToday, asking, recentTrail, trail, backTo, unseenCount,
+    inChip, inProject, listed, groups, topLevel, chips, allTodos, dueToday, recentTrail, trail, backTo, hereInfo,
     tidy, famLast, inWorktree, isTicked,
   }
 }
