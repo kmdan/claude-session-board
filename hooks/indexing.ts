@@ -230,4 +230,21 @@ export async function openBoard($: $T, isAsked = false): Promise<void> {
   live.isShown = isPlaced
   background($, loadStored($))
   background($, openFresh($))
+  background($, tidyPastes($))
+}
+
+/**
+ * Pasted files older than 30 days go to the Recycle Bin (reversible; never a
+ * hard delete). Once a day for all sessions: the store keeps when it last ran.
+ */
+async function tidyPastes($: $T): Promise<void> {
+  const last = ((await $.store.get('pasteTidyAt')) as number | undefined) ?? 0
+  if (Date.now() - last < 86_400_000) return
+  await $.store.set('pasteTidyAt', Date.now())
+  const cache = `${$.plugin.root}/cache`.replace(/\//g, '\\').replace(/'/g, "''")
+  const script = "Add-Type -AssemblyName Microsoft.VisualBasic; "
+    + `Get-ChildItem -LiteralPath '${cache}' -Filter 'paste-*.md' -File `
+    + '| Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-30) } '
+    + "| ForEach-Object { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($_.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin') }"
+  await $.process.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', script], { timeoutMs: 60_000 })
 }

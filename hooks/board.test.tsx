@@ -649,6 +649,22 @@ test('pasted text is saved as an .md file and its path goes into the prompt box,
   await ui.unmount()
 })
 
+test('pastes older than 30 days go to the Recycle Bin, once a day for all sessions', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  const tidyRuns = () => ran.filter(a => a[0] === 'powershell' && a.join(' ').includes("'paste-*.md'")).length
+  const before = tidyRuns()
+  await start($, on, store)
+  await new Promise(done => setTimeout(done, 50))
+  expect(tidyRuns()).toBe(before + 1)
+  const cmd = ran.filter(a => a[0] === 'powershell').pop()!.join(' ')
+  expect(cmd).toContain('AddDays(-30)')
+  expect(cmd).toContain('SendToRecycleBin')
+  // a second board the same day does not run it again
+  await $.command.run({ command: 'board' })
+  await new Promise(done => setTimeout(done, 50))
+  expect(tidyRuns()).toBe(before + 1)
+})
+
 test('a session that started with no window opens the board when it is shown', async ($, on) => {
   engine(on)
   const before = opened
