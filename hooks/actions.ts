@@ -226,6 +226,31 @@ export async function archiveMany($: $T, ids: string[]): Promise<void> {
   $.ui.toast(`Archived ${done.length}${failed.length ? `, ${failed.length} not (${failed[0]})` : ''}${left ? `, stopped before ${left} more` : ''}`)
 }
 
+/**
+ * Saves pasted text (a log, a command's output) as a Markdown file and puts its
+ * path into this session's prompt box, so Claude reads the file, or the part of
+ * it it needs, instead of the whole paste riding along in the conversation.
+ * Kept in the plugin's cache/ (git ignores it), never in the session's repo.
+ */
+export async function savePaste($: $T, text: string): Promise<void> {
+  if (!text.trim()) return
+  const d = new Date()
+  const p2 = (n: number) => String(n).padStart(2, '0')
+  const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`
+  const first = text.split('\n').find(l => l.trim()) ?? ''
+  const slug = first.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'paste'
+  const path = `${$.plugin.root}/cache/paste-${stamp}-${slug}.md`.replace(/\\/g, '/')
+  const lines = text.split('\n').length
+  // a fence the text cannot close by itself
+  const fence = text.includes('```') ? '~~~~' : '```'
+  await $.fs.write(path, `# Pasted ${d.toLocaleString()}\n\n${lines} lines\n\n${fence}text\n${text.replace(/\s+$/, '')}\n${fence}\n`)
+  logUse('paste', { lines, chars: text.length })
+  const filled = await $.prompt.fill({ text: ` Pasted output (${lines} lines): ${path} `, mode: 'append' }).catch(() => undefined)
+  $.ui.toast(filled?.isFilled === false
+    ? `Saved ${lines} lines to ${path} (the prompt box was busy: the path is not in it)`
+    : `Saved ${lines} lines; its path is in your prompt`)
+}
+
 export async function openFile($: $T, path: string): Promise<void> {
   logUse('file', { kind: path.split('.').pop()?.toLowerCase() ?? '' })
   await $.process.run(['explorer.exe', path])

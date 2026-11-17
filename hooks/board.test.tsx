@@ -622,6 +622,33 @@ test('Waiting for you lists what asks you or finished unseen, newest first; Next
   await ui.unmount()
 })
 
+test('pasted text is saved as an .md file and its path goes into the prompt box, not the text', async ($, on) => {
+  const fills: { text: string; mode?: string }[] = []
+  on('prompt.fill', (_: unknown, e: any) => {
+    fills.push({ text: e.text, mode: e.mode })
+    return { isFilled: true }
+  })
+  for (const k of Object.keys(disk)) delete disk[k]
+  await start($, on)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const log = 'C:\\build> make all\nerror: missing ``` fence\nline three'
+  await ui.input({ key: 'paste-0', text: log })
+  await new Promise(done => setTimeout(done, 50))
+  const file = Object.keys(disk).find(p => /cache[\\/]paste-\d{4}-\d\d-\d\d_\d{6}-c-build-make-all\.md$/.test(p))
+  expect(file).toBeDefined()
+  // kept whole, in a fence the text cannot close (it holds ```)
+  expect(disk[file!].text).toContain(`~~~~text\n${log}\n~~~~`)
+  // the prompt gets the path and the line count, never the text itself
+  expect(fills).toHaveLength(1)
+  expect(fills[0].mode).toBe('append')
+  expect(fills[0].text).toContain('(3 lines)')
+  expect(fills[0].text).toContain(file!.replace(/\\/g, '/'))
+  expect(fills[0].text).not.toContain('make all')
+  // the box is drawn anew, empty
+  expect(await ui.find({ key: 'paste-1' })).toBeDefined()
+  await ui.unmount()
+})
+
 test('a session that started with no window opens the board when it is shown', async ($, on) => {
   engine(on)
   const before = opened

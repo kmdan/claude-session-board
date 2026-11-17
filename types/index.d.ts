@@ -120,6 +120,8 @@ export type Ui = {
    * archived, to tick and archive in one go
    */
   view: 'board' | 'todos' | 'media' | 'focus' | 'graph' | 'tidy'
+  /** how often something was pasted and saved: the paste box's key, so it is drawn anew, empty */
+  pasted?: number
   /** Tidy up: ticked or unticked by hand, by session id (the rest keep their default) */
   tidyPick?: Record<string, boolean>
   /** label filter of the Todos view; '' = all */

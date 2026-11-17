@@ -11,6 +11,9 @@ lot of sessions at once and lose track of them, ADHD brains included.
   counted), context fill, and its folder. Read with git every 30 seconds while
   the board is shown.
 - **Here**: the session you are in, pinned at the top.
+- **A paste box**: paste a log or a command's output and press Enter. It is
+  saved as `cache/paste-<time>-<first words>.md` and its path (not the text)
+  goes into this session's prompt, so Claude reads what it needs from the file.
 - **Needs you**: everything you touched today and did not close, and anything
   that started asking for you in the last day. A session that just asked
   **pulses** until you open its card, like the app's notification. Older asks

@@ -7,7 +7,7 @@ import { projectColor, projectLabel } from './board'
 
 // lines removed, as the app's Changes box shows them
 const REMOVED = '#d06a6a'
-import { openSession, stepTrail } from './actions'
+import { openSession, savePaste, stepTrail } from './actions'
 import { makeCards } from './cards'
 import { PULSE_WORKING, READY, readDrawing, short } from './draw'
 import { openBoard, quickTick, refresh, refreshHereInfo, searchText, tick } from './indexing'
@@ -177,6 +177,21 @@ export const register: Register = on => {
               <Text dimColor>✕ clear</Text>
             </Button>
           )}
+        </Box>
+        {/* paste a log or a command's output: Enter saves it as an .md file and puts its
+            path in this session's prompt (a new key draws the box anew, empty) */}
+        <Box marginTop={1}>
+          <Input
+            key={`paste-${ui.pasted ?? 0}`}
+            rows={2}
+            placeholder="Paste a log or command output here. Enter: saved as an .md file, its path put in your prompt"
+            submitLabel="save to prompt"
+            onSubmit={v => {
+              if (!v.trim()) return
+              background($, savePaste($, v))
+              setUi(u => ({ ...u, pasted: (u.pasted ?? 0) + 1 }))
+            }}
+          />
         </Box>
         <Box flexDirection="row" flexWrap="wrap" gap={1} marginY={1}>
           <Button key="v-board" variant={ui.view === 'board' || ui.view === 'focus' ? 'primary' : 'secondary'} label="Board" onPress={() => setUi(u => ({ ...u, view: 'board' }))} />
