@@ -262,12 +262,23 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
   const inWorktree = (s: Sess) => /[\\/](worktrees?|\.claude[\\/]worktrees)[\\/]/i.test(s.cwd)
   const isTicked = (s: Sess) => ui.tidyPick?.[s.id] ?? !inWorktree(s)
 
+  // Waiting for you: what asks you (the app says so, or a question page is open;
+  // two days, as the green dot) and what finished since you last looked (a week).
+  // Newest first: you mostly answer what just moved. Never the session you are
+  // in, nor one still working. `Next` is the first you have not looked at since
+  // it moved, else simply the first.
+  const looked = (s: Sess) => Math.max(s.touched ?? 0, seen[s.id] ?? 0) >= s.last
+  const waiting = listed
+    .filter(s => (!here || s.id !== here.id) && !isWorking(s, now) && (waitsForYou(s) || isUnseen(s)))
+    .sort((a, b) => b.last - a.last)
+  const next = waiting.find(s => !looked(s)) ?? waiting[0]
+
   return {
     table, Svg, bodyColumns, bodyRows, narrow, ix, ui, marks, notes, moved, opening, answered, seen, fullText, now, setUi,
     all, byId, byCli, kidsOf, here, hereChain, find, chat, st,
     finishedForYou, isUnseen, waitsForYou, isFresh, hasReported, asksYou, isPageOpen, openPages, borderOf,
     inChip, inProject, listed, groups, topLevel, chips, allTodos, dueToday, recentTrail, trail, backTo, hereInfo,
-    tidy, famLast, inWorktree, isTicked,
+    tidy, famLast, inWorktree, isTicked, waiting, next, looked,
   }
 }
 

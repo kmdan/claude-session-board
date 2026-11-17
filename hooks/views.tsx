@@ -4,8 +4,8 @@ import type { Media, Sess } from '../types'
 import { ago, byRecent, dueBucket, isWorking, layoutGraph, matches, projectColor, projectLabel } from './board'
 import type { GraphSpot } from './board'
 import type { Cards } from './cards'
-import { addTodo, archiveMany } from './actions'
-import { ACCENT, BORDER, chipOf, DOT, HERE, READY, SEEN, stateWord, WORKING } from './draw'
+import { addTodo, archiveMany, openSession } from './actions'
+import { ACCENT, BORDER, chipOf, DOT, HERE, READY, SEEN, short, stateWord, WORKING } from './draw'
 import type { Drawing, TodoRow } from './draw'
 import { background, INBOX } from './state'
 import type { $T } from './state'
@@ -205,6 +205,56 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
     )
   }
 
+  // Waiting for you, on top: one short line each (dot, title that opens it,
+  // project, "asks you" or "new", age), newest first; five, then "N more".
+  // One you already looked at stays while it still asks, quieter.
+  const waitingStrip = () => {
+    const { waiting, looked, waitsForYou, narrow } = d
+    if (waiting.length === 0) return null
+    const limit = ui.shown.waitingAll ? waiting.length : 5
+    return (
+      <Box key="s-waiting" flexDirection="column" marginBottom={1}>
+        <Box flexDirection="row" gap={1} alignItems="center">
+          <Text color={READY}>▎</Text>
+          <Text>
+            <Text bold color={READY}>Waiting for you</Text>
+            <Text dimColor> {waiting.length}</Text>
+          </Text>
+        </Box>
+        <Box flexDirection="column" borderStyle="round" borderColor={BORDER} paddingX={1}>
+          {waiting.slice(0, limit).map(s => {
+            const asks = waitsForYou(s)
+            const isNew = !looked(s)
+            const parent = s.parent ? byId.get(s.parent) : undefined
+            return (
+              <Box key={`wl-${s.id}`} flexDirection="row" gap={1} alignItems="center" minWidth={0} overflow="hidden">
+                <Text color={isNew || asks ? READY : SEEN}>●</Text>
+                <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
+                  <Button key={`wt-${s.id}`} plain onPress={() => background($, openSession($, s.id, 'waiting'))}>
+                    {parent && <Text dimColor>{short(parent.title, narrow ? 12 : 24)} › </Text>}
+                    <Text bold={isNew} wrap="truncate-end">{s.title}</Text>
+                  </Button>
+                </Box>
+                <Box flexDirection="row" gap={1} flexShrink={0}>
+                  <Text color={projectColor(s.project)}>{short(projectLabel(chipOf(s.project)), narrow ? 10 : 16)}</Text>
+                  <Text color={asks ? ACCENT : READY}>{asks ? 'asks you' : 'new'}</Text>
+                  <Text dimColor>{ago(now - s.last)}</Text>
+                </Box>
+              </Box>
+            )
+          })}
+          {waiting.length > limit && (
+            <Box>
+              <Button key="more-waiting" plain onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, waitingAll: true } }))}>
+                <Text dimColor>└ {waiting.length - limit} more</Text>
+              </Button>
+            </Box>
+          )}
+        </Box>
+      </Box>
+    )
+  }
+
   const boardView = () => {
     // A subsession you are in is drawn with its whole family, from the top: its
     // main session's card, the way down to you as cards, everyone else as lines.
@@ -212,6 +262,7 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
     return (
       <Box flexDirection="column">
         {all.length === 0 && <Text dimColor>{ix.isLoading ? 'Reading your sessions…' : ix.note}</Text>}
+        {waitingStrip()}
         {hereTop && (
           <Box key="s-here" flexDirection="column" marginBottom={1}>
             <Text dimColor>HERE</Text>

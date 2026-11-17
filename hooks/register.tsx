@@ -7,7 +7,7 @@ import { projectColor, projectLabel } from './board'
 
 // lines removed, as the app's Changes box shows them
 const REMOVED = '#d06a6a'
-import { stepTrail } from './actions'
+import { openSession, stepTrail } from './actions'
 import { makeCards } from './cards'
 import { PULSE_WORKING, READY, readDrawing, short } from './draw'
 import { openBoard, quickTick, refresh, refreshHereInfo, searchText, tick } from './indexing'
@@ -121,6 +121,11 @@ export const register: Register = on => {
             </Box>
           ) : <Text bold>Sessions</Text>}
           <Box flexDirection="row" gap={1} alignItems="center" flexShrink={0}>
+            {/* the next session waiting for you, one click: the first not looked at since it moved */}
+            {d.next && (
+              <Button key="next" variant="primary" label={`Next ↗ ${short(d.next.title, narrow ? 12 : 22)}`}
+                onPress={() => background($, openSession($, d.next!.id, 'next'))} />
+            )}
             {/* back and forward through the sessions you were in */}
             {backTo && (
               <Button key="trail-back" variant="secondary" onPress={() => background($, stepTrail($, 1, here?.id, recentTrail))}

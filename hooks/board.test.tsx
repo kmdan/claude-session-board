@@ -456,8 +456,12 @@ test('the green dot means it asks you, for two days: a finished session or an ol
     for (const id of ['Asks now', 'Page open', 'Asked long ago', 'Just finished']) {
       expect(await ui.find({ key: `row-${id}` })).toBeDefined()
     }
+    // the lines' dots: two green; the Waiting strip on top adds its own green dot for all
+    // four (two ask you, two finished and not looked at yet), so six green dots in all
     const dots = await ui.findAll({ type: 'Text', text: '●' })
-    expect(dots.filter((t: any) => t.text === '●' && t.props?.color === '#5fae6e')).toHaveLength(2)
+    expect(dots.filter((t: any) => t.text === '●' && t.props?.color === '#5fae6e')).toHaveLength(6)
+    expect((await ui.findAll({ type: 'Text', text: 'asks you' })).filter((t: any) => t.text === 'asks you')).toHaveLength(2)
+    expect((await ui.findAll({ type: 'Text', text: 'new' })).filter((t: any) => t.text === 'new')).toHaveLength(2)
     await ui.unmount()
   } finally {
     INDEX.sessions = saved
@@ -597,6 +601,25 @@ test('a session outside a git repo shows just its project and folder on the top 
     INDEX.sessions = saved
     for (const k of Object.keys(disk)) delete disk[k]
   }
+})
+
+test('Waiting for you lists what asks you or finished unseen, newest first; Next opens the first not looked at', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  await start($, on, store)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // Parser rewrite asks (an hour ago, never looked at); its subsession asked 3 days ago, unseen;
+  // Docs audit is working, Old probe a month quiet: neither waits
+  expect(await ui.find({ type: 'Text', text: /^Waiting for you 2$/ })).toBeDefined()
+  expect(await ui.find({ key: 'wt-Parser rewrite' })).toBeDefined()
+  expect(await ui.find({ key: 'wt-Parser edge cases' })).toBeDefined()
+  expect(await ui.find({ key: 'wt-Docs audit' })).toBeUndefined()
+  expect((await ui.find({ key: 'next' }) as any)?.props?.label).toMatch(/^Next ↗ Parser rewrite/)
+  await ui.press({ key: 'next' })
+  expect(ran.some(a => a.join(' ').endsWith('epitaxy/Parser rewrite'))).toBe(true)
+  // looked at now: Next moves on to the one you have not seen; Parser rewrite stays listed, it still asks
+  expect((await ui.find({ key: 'next' }) as any)?.props?.label).toMatch(/^Next ↗ Parser edge cases/)
+  expect(await ui.find({ key: 'wt-Parser rewrite' })).toBeDefined()
+  await ui.unmount()
 })
 
 test('a session that started with no window opens the board when it is shown', async ($, on) => {
