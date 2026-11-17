@@ -104,7 +104,8 @@ let hiddenMemo = { src: undefined as Sess[] | undefined, key: '', out: [] as Ses
 function withHidden(src: Sess[], hidden: Record<string, number>): Sess[] {
   const key = Object.keys(hidden).sort().join(',')
   if (hiddenMemo.src === src && hiddenMemo.key === key) return hiddenMemo.out
-  const out = key ? src.map(s => (hidden[s.id] && !s.archived ? { ...s, archived: true, hidden: true } : s)) : src
+  // hidden only while it stays as it was: one that moves again (asks you, works) comes back
+  const out = key ? src.map(s => (hidden[s.id] && !s.archived && s.last <= hidden[s.id] ? { ...s, archived: true, hidden: true } : s)) : src
   hiddenMemo = { src, key, out }
   return out
 }
@@ -130,7 +131,8 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
 
   const setUi = (fn: (u: Ui) => Ui) => background($, updateUi($, fn))
   const all = withHidden(ix.sessions, hidden)
-  const hiddenIds = Object.keys(hidden)
+  // the ones still hidden (one that moved again is back on the board)
+  const hiddenIds = all.filter(s => s.hidden).map(s => s.id)
   selfCli ??= await $.session.id()
   const { byId, byCli, sorted, kidsOf, byTouched } = listsOf(all)
 

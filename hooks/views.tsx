@@ -6,7 +6,7 @@ import type { Cards } from './cards'
 import { archiveMany, hideMany, openSession } from './actions'
 import { ACCENT, BORDER, chipOf, DOT, READY, SEEN, short, stateWord } from './draw'
 import type { Drawing } from './draw'
-import { background } from './state'
+import { background, setPref } from './state'
 import type { $T } from './state'
 
 // how many cards a section shows before "Show more"
@@ -148,7 +148,11 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
     const limit = ui.shown.waitingAll ? waiting.length : 5
     // folded by its ▾ / ▸ to the heading alone; Next ↗ on top still goes through them
     const isFolded = !!ui.shown.waitingFolded
-    const toggle = () => setUi(u => ({ ...u, shown: { ...u.shown, waitingFolded: !u.shown.waitingFolded } }))
+    // kept in the store too: every session's board then opens the same way
+    const toggle = () => {
+      setUi(u => ({ ...u, shown: { ...u.shown, waitingFolded: !isFolded } }))
+      background($, setPref($, 'waitingFolded', !isFolded))
+    }
     return (
       <Box key="s-waiting" flexDirection="column" marginBottom={1}>
         <Box flexDirection="row" gap={1} alignItems="center">
@@ -226,6 +230,17 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
     const limit = ui.limits.tidy ?? Math.max(10, bodyRows - TOP_ROWS - 6)
     const pick = (ids: string[], on: boolean) =>
       setUi(u => ({ ...u, tidyPick: { ...u.tidyPick, ...Object.fromEntries(ids.map(id => [id, on])) } }))
+    // a session's subsessions go with it: archiving takes them along, so hiding does too
+    const withFamily = (ids: string[]): string[] => {
+      const out = new Set<string>()
+      const add = (id: string, depth: number) => {
+        if (out.has(id) || depth > 8) return
+        out.add(id)
+        for (const c of kidsOf.get(id) ?? []) add(c.id, depth + 1)
+      }
+      for (const id of ids) add(id, 0)
+      return [...out]
+    }
     const unhide = hiddenCount > 0 && (
       <Button key="tidy-unhide" variant="secondary" label={`Unhide all ${hiddenCount}`}
         onPress={() => background($, hideMany($, d.hiddenIds, false))} />
@@ -253,7 +268,7 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
         </Text>
         <Box flexDirection="row" flexWrap="wrap" gap={1} marginY={1}>
           <Button key="tidy-hide" variant="primary" label={`Hide ${ticked.length} from the board`}
-            onPress={() => { if (ticked.length) background($, hideMany($, ticked.map(s => s.id), true)) }} />
+            onPress={() => { if (ticked.length) background($, hideMany($, withFamily(ticked.map(s => s.id)), true)) }} />
           <Button key="tidy-archive" variant="secondary" label={`Archive ${archivable.length} in the app`}
             onPress={() => { if (archivable.length) background($, archiveMany($, archivable.map(s => s.id))) }} />
           {unhide}

@@ -475,6 +475,40 @@ test('Tidy up hides what has been quiet a month from the board, at once and undo
   await ui.unmount()
 })
 
+test('Tidy up hides a session with its subsessions, in one press; one that moves again comes back', async ($, on) => {
+  const saved = INDEX.sessions
+  const old = NOW - 40 * 24 * H
+  INDEX.sessions = [
+    sess('Old parent', { last: old }),
+    sess('Old child', { last: old, parent: 'Old parent' }),
+    sess('Old grandchild', { last: old, parent: 'Old child' }),
+    sess('Recent', { last: NOW - H }),
+  ] as any
+  const store: Record<string, unknown> = {}
+  const clock = mock.clock(on, { now: Date.now() })
+  for (const k of Object.keys(disk)) delete disk[k]
+  try {
+    await start($, on, store, undefined, false)
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    await ui.press({ key: 'v-tidy' })
+    expect((await ui.find({ key: 'tidy-hide' }) as any)?.props?.label).toBe('Hide 1 from the board')
+    await ui.press({ key: 'tidy-hide' })
+    // the whole family went at once: nothing left to tidy, so the tab is gone too
+    expect(Object.keys(store.hidden as object).sort()).toEqual(['Old child', 'Old grandchild', 'Old parent'])
+    await ui.press({ key: 'v-board' })
+    expect(await ui.find({ key: 'v-tidy' })).toBeUndefined()
+    // the child asks you again: it is back on the board, unhidden by what it did
+    quickRows = [{ id: 'Old child', last: Date.now() + 1000, appStatus: 'blocked' }]
+    await clock.advance(20_000)
+    expect(await ui.find({ key: 'wt-Old child' })).toBeDefined()
+    await ui.unmount()
+  } finally {
+    quickRows = []
+    INDEX.sessions = saved
+    for (const k of Object.keys(disk)) delete disk[k]
+  }
+})
+
 test('Tidy up lists what has been quiet a month and archives the ticked ones in the app, worktrees left out', async ($, on) => {
   const saved = INDEX.sessions
   const old = NOW - 40 * 24 * H

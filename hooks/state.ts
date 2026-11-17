@@ -245,13 +245,32 @@ async function recordChatAnswers($: $T, sessions: Sess[]): Promise<void> {
   await update($, answeredAtom, () => next)
 }
 
+/**
+ * Takes in what every session's board keeps in the store: marks, answers,
+ * seen, hidden, and your board settings. Run at open and on the 2-minute tick,
+ * so a change made in one session reaches the others; what did not change
+ * keeps its value and redraws nothing.
+ */
 export async function loadStored($: $T): Promise<void> {
+  const same = <V>(cur: V, next: V) => (JSON.stringify(cur) === JSON.stringify(next) ? cur : next)
   const marks = (await $.store.get('marks')) as Marks | undefined
-  if (marks) await update($, marksAtom, () => marks)
+  if (marks) await update($, marksAtom, cur => same(cur, marks))
   const answered = (await $.store.get('answered')) as Answered | undefined
-  if (answered) await update($, answeredAtom, () => answered)
+  if (answered) await update($, answeredAtom, cur => same(cur, answered))
   const seen = (await $.store.get('seen')) as Record<string, number> | undefined
-  if (seen) await update($, seenAtom, () => seen)
+  if (seen) await update($, seenAtom, cur => same(cur, seen))
   const hidden = (await $.store.get('hidden')) as Record<string, number> | undefined
-  if (hidden) await update($, hiddenAtom, () => hidden)
+  if (hidden) await update($, hiddenAtom, cur => same(cur, hidden))
+  // board settings that hold in every session (the Waiting strip folded or not)
+  const prefs = (await $.store.get('prefs')) as { waitingFolded?: boolean } | undefined
+  if (prefs?.waitingFolded !== undefined) {
+    await update($, uiAtom, u => (!!u.shown.waitingFolded === prefs.waitingFolded
+      ? u : { ...u, shown: { ...u.shown, waitingFolded: prefs.waitingFolded } }))
+  }
+}
+
+/** A board setting kept for every session's board. */
+export async function setPref($: $T, key: 'waitingFolded', value: boolean): Promise<void> {
+  const stored = ((await $.store.get('prefs')) as Record<string, unknown> | undefined) ?? {}
+  await $.store.set('prefs', { ...stored, [key]: value })
 }

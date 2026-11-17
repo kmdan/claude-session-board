@@ -85,16 +85,16 @@ def main() -> None:
     show('searched for', collections.Counter(searches), 15)
 
     features = {
-        'Todos view': any(r.get('key') == 'view' and r.get('to') == 'todos' for r in ui),
-        'Media view': any(r.get('key') == 'view' and r.get('to') == 'media' for r in ui),
-        'Graph view': any(r.get('key') == 'view' and r.get('to') == 'graph' for r in ui),
-        'By state order': any(r.get('key') == 'boardBy' and r.get('to') == 'state' for r in ui),
+        'Waiting for you lines': any(r.get('via') == 'waiting' for r in opens),
+        'Next button': any(r.get('via') == 'next' for r in opens),
+        'Paste log': what['paste'] > 0,
+        'Tidy up hide': what['tidy-hide'] > 0,
+        'card tabs': any(r.get('key') == 'tab' and r.get('to') not in ('', 'none') for r in ui),
         'project chips': any(r.get('key') == 'project' and r.get('to') for r in ui),
         'search': bool(searches),
         'full-text search (Enter)': what['search-said'] > 0,
         'back / forward trail': any(str(r.get('via', '')).startswith('trail') for r in opens),
         'quick done / park on lines': any(r['what'] == 'mark' and r.get('via') == 'line' for r in rows),
-        'todos': what['todo'] > 0,
         'mark answered': what['answered'] > 0,
         'Refresh': what['refresh'] > 0,
     }

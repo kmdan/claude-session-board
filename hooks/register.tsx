@@ -201,8 +201,8 @@ export const register: Register = on => {
         )}
         <Box flexDirection="row" flexWrap="wrap" gap={1} marginY={1}>
           <Button key="v-board" variant={ui.view === 'board' || ui.view === 'focus' ? 'primary' : 'secondary'} label="Board" onPress={() => setUi(u => ({ ...u, view: 'board' }))} />
-          {/* while there is something to tidy, or something hidden to bring back */}
-          {(d.tidy.length > 0 || d.hiddenCount > 0 || ui.view === 'tidy') && (
+          {/* only while there is something to tidy (a hidden one comes back by search, or Unhide there) */}
+          {(d.tidy.length > 0 || ui.view === 'tidy') && (
             <Button key="v-tidy" variant={ui.view === 'tidy' ? 'primary' : 'secondary'} label={`Tidy up · ${d.tidy.length}`}
               onPress={() => setUi(u => ({ ...u, view: 'tidy' }))} />
           )}

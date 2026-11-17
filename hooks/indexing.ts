@@ -148,8 +148,11 @@ export async function quickTick($: $T): Promise<void> {
 export async function tick($: $T): Promise<void> {
   if (!live.isShown) return
   const stat = await $.fs.stat(`${$.plugin.root}/cache/snapshot.json`).catch(() => undefined)
-  if (stat && Date.now() - stat.mtimeMs < 110_000) await loadSnapshot($, true)
-  else await refresh($)
+  if (stat && Date.now() - stat.mtimeMs < 110_000) {
+    // what other sessions' boards changed (marks, hidden, answers) comes along too
+    await loadStored($)
+    await loadSnapshot($, true)
+  } else await refresh($)
 }
 
 /** The ids the app reports running, or why that could not be read (printed on the bottom line). */
