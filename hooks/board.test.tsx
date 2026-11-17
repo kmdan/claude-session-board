@@ -347,6 +347,9 @@ test('the Todos view: Inbox quick add, Today, label filter, tick, and a session 
   const store: Record<string, unknown> = {}
   await start($, on, store)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // Todos waits behind ⋯ until something is due
+  expect(await ui.find({ key: 'v-todos' })).toBeUndefined()
+  await ui.press({ key: 'more-views' })
   await ui.press({ key: 'v-todos' })
   await ui.input({ key: 'todo-add', text: 'check the cache size @ops today' })
   await ui.input({ key: 'todo-add', text: 'write the release notes @docs' })
@@ -619,6 +622,13 @@ test('Waiting for you lists what asks you or finished unseen, newest first; Next
   // looked at now: Next moves on to the one you have not seen; Parser rewrite stays listed, it still asks
   expect((await ui.find({ key: 'next' }) as any)?.props?.label).toMatch(/^Next ↗ Parser edge cases/)
   expect(await ui.find({ key: 'wt-Parser rewrite' })).toBeDefined()
+  // ▾ folds the strip to its heading; Next stays
+  await ui.press({ key: 'waiting-fold' })
+  expect(await ui.find({ key: 'wt-Parser rewrite' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^Waiting for you 2$/ })).toBeDefined()
+  expect(await ui.find({ key: 'next' })).toBeDefined()
+  await ui.press({ key: 'waiting-fold' })
+  expect(await ui.find({ key: 'wt-Parser rewrite' })).toBeDefined()
   await ui.unmount()
 })
 
@@ -632,6 +642,9 @@ test('pasted text is saved as an .md file and its path goes into the prompt box,
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const log = 'C:\\build> make all\nerror: missing ``` fence\nline three'
+  // the box opens from its button, so the top stays short
+  expect(await ui.find({ key: 'paste-0' })).toBeUndefined()
+  await ui.press({ key: 'paste-open' })
   await ui.input({ key: 'paste-0', text: log })
   await new Promise(done => setTimeout(done, 50))
   const file = Object.keys(disk).find(p => /cache[\\/]paste-\d{4}-\d\d-\d\d_\d{6}-c-build-make-all\.md$/.test(p))
@@ -644,7 +657,9 @@ test('pasted text is saved as an .md file and its path goes into the prompt box,
   expect(fills[0].text).toContain('(3 lines)')
   expect(fills[0].text).toContain(file!.replace(/\\/g, '/'))
   expect(fills[0].text).not.toContain('make all')
-  // the box is drawn anew, empty
+  // saved: the box folds away; opened again it is empty
+  expect(await ui.find({ key: 'paste-1' })).toBeUndefined()
+  await ui.press({ key: 'paste-open' })
   expect(await ui.find({ key: 'paste-1' })).toBeDefined()
   await ui.unmount()
 })
@@ -856,6 +871,7 @@ test('the graph puts related sessions together, every dot on its own cell, in th
 test('the Graph tab shows the sessions as dots; a click opens one and back returns to the graph', async ($, on) => {
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'more-views' })
   await ui.press({ key: 'v-graph' })
   expect(await ui.find({ key: 'g-Parser rewrite' })).toBeDefined()
   // archived and month-quiet sessions are not on it
@@ -1023,6 +1039,7 @@ test('the media view lists movies and pages newest first, and a click opens the 
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
+  await ui.press({ key: 'more-views' })
   await ui.press({ key: 'v-media' })
   expect(await ui.find({ type: 'Text', text: /newest first \(2\)/ })).toBeDefined()
   await ui.press({ key: 'mo-Parser rewrite-C:\\out\\demo_walkthrough.mov' })

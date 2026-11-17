@@ -212,15 +212,20 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
     const { waiting, looked, waitsForYou, narrow } = d
     if (waiting.length === 0) return null
     const limit = ui.shown.waitingAll ? waiting.length : 5
+    // folded by its ▾ / ▸ to the heading alone; Next ↗ on top still goes through them
+    const isFolded = !!ui.shown.waitingFolded
+    const toggle = () => setUi(u => ({ ...u, shown: { ...u.shown, waitingFolded: !u.shown.waitingFolded } }))
     return (
       <Box key="s-waiting" flexDirection="column" marginBottom={1}>
         <Box flexDirection="row" gap={1} alignItems="center">
           <Text color={READY}>▎</Text>
+          <Button key="waiting-fold" plain onPress={toggle}>{isFolded ? '▸' : '▾'}</Button>
           <Text>
             <Text bold color={READY}>Waiting for you</Text>
             <Text dimColor> {waiting.length}</Text>
           </Text>
         </Box>
+        {!isFolded && (
         <Box flexDirection="column" borderStyle="round" borderColor={BORDER} paddingX={1}>
           {waiting.slice(0, limit).map(s => {
             const asks = waitsForYou(s)
@@ -251,6 +256,7 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
             </Box>
           )}
         </Box>
+        )}
       </Box>
     )
   }

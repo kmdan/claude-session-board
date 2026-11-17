@@ -177,28 +177,44 @@ export const register: Register = on => {
               <Text dimColor>✕ clear</Text>
             </Button>
           )}
+          {/* the paste box opens on demand: it is used now and then, not all day */}
+          <Button key="paste-open" variant={ui.shown.paste ? 'primary' : 'secondary'} label="Paste log"
+            onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, paste: !u.shown.paste } }))} />
         </Box>
         {/* paste a log or a command's output: Enter saves it as an .md file and puts its
-            path in this session's prompt (a new key draws the box anew, empty) */}
-        <Box marginTop={1}>
-          <Input
-            key={`paste-${ui.pasted ?? 0}`}
-            rows={2}
-            placeholder="Paste a log or command output here. Enter: saved as an .md file, its path put in your prompt"
-            submitLabel="save to prompt"
-            onSubmit={v => {
-              if (!v.trim()) return
-              background($, savePaste($, v))
-              setUi(u => ({ ...u, pasted: (u.pasted ?? 0) + 1 }))
-            }}
-          />
-        </Box>
+            path in this session's prompt (a new key draws the box anew, empty), and it folds away */}
+        {ui.shown.paste && (
+          <Box marginTop={1}>
+            <Input
+              key={`paste-${ui.pasted ?? 0}`}
+              rows={3}
+              autoFocus
+              placeholder="Paste a log or command output. Enter: saved as an .md file, its path put in your prompt"
+              submitLabel="save to prompt"
+              onSubmit={v => {
+                if (!v.trim()) return
+                background($, savePaste($, v))
+                setUi(u => ({ ...u, pasted: (u.pasted ?? 0) + 1, shown: { ...u.shown, paste: false } }))
+              }}
+            />
+          </Box>
+        )}
         <Box flexDirection="row" flexWrap="wrap" gap={1} marginY={1}>
           <Button key="v-board" variant={ui.view === 'board' || ui.view === 'focus' ? 'primary' : 'secondary'} label="Board" onPress={() => setUi(u => ({ ...u, view: 'board' }))} />
-          <Button key="v-todos" variant={ui.view === 'todos' ? 'primary' : 'secondary'}
-            label={dueToday > 0 ? `Todos · ${dueToday}` : 'Todos'} onPress={() => setUi(u => ({ ...u, view: 'todos' }))} />
-          <Button key="v-media" variant={ui.view === 'media' ? 'primary' : 'secondary'} label="Media" onPress={() => setUi(u => ({ ...u, view: 'media' }))} />
-          <Button key="v-graph" variant={ui.view === 'graph' ? 'primary' : 'secondary'} label="Graph" onPress={() => setUi(u => ({ ...u, view: 'graph' }))} />
+          {/* Todos, Media and Graph wait behind ⋯ (the usage log saw them unused); a
+              tab in use, or todos due today, keeps its button out */}
+          {(ui.shown.moreViews || ui.view === 'todos' || dueToday > 0) && (
+            <Button key="v-todos" variant={ui.view === 'todos' ? 'primary' : 'secondary'}
+              label={dueToday > 0 ? `Todos · ${dueToday}` : 'Todos'} onPress={() => setUi(u => ({ ...u, view: 'todos' }))} />
+          )}
+          {(ui.shown.moreViews || ui.view === 'media') && (
+            <Button key="v-media" variant={ui.view === 'media' ? 'primary' : 'secondary'} label="Media" onPress={() => setUi(u => ({ ...u, view: 'media' }))} />
+          )}
+          {(ui.shown.moreViews || ui.view === 'graph') && (
+            <Button key="v-graph" variant={ui.view === 'graph' ? 'primary' : 'secondary'} label="Graph" onPress={() => setUi(u => ({ ...u, view: 'graph' }))} />
+          )}
+          <Button key="more-views" variant="secondary" label={ui.shown.moreViews ? '‹' : '⋯'}
+            onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, moreViews: !u.shown.moreViews } }))} />
           {/* only while there is something to tidy */}
           {(d.tidy.length > 0 || ui.view === 'tidy') && (
             <Button key="v-tidy" variant={ui.view === 'tidy' ? 'primary' : 'secondary'} label={`Tidy up · ${d.tidy.length}`}
