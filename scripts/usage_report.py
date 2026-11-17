@@ -17,11 +17,14 @@ import time
 
 
 def main() -> None:
-    args = [a for a in sys.argv[1:] if not a.startswith('--')]
-    folder = args[0] if args else os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'cache')
+    argv = sys.argv[1:]
     days = 30
-    if '--days' in sys.argv:
-        days = int(sys.argv[sys.argv.index('--days') + 1])
+    if '--days' in argv:
+        i = argv.index('--days')
+        days = int(argv[i + 1])
+        argv = argv[:i] + argv[i + 2:]
+    args = [a for a in argv if not a.startswith('--')]
+    folder = args[0] if args else os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'cache')
     since = (time.time() - days * 86400) * 1000
 
     rows = []
