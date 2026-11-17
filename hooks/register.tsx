@@ -89,7 +89,7 @@ export const register: Register = on => {
     const d = await readDrawing($, e)
     const { Box, Text, Button, Input } = d.table
     const {
-      Svg, narrow, ix, ui, setUi, byId, here, dueToday, trail, backTo, recentTrail, chips,
+      Svg, narrow, ix, ui, setUi, byId, here, trail, backTo, recentTrail, chips,
     } = d
     const view = makeViews($, d, makeCards($, d))
     // The top line: the session you are in, as the app's Environment box has it:
@@ -201,22 +201,8 @@ export const register: Register = on => {
         )}
         <Box flexDirection="row" flexWrap="wrap" gap={1} marginY={1}>
           <Button key="v-board" variant={ui.view === 'board' || ui.view === 'focus' ? 'primary' : 'secondary'} label="Board" onPress={() => setUi(u => ({ ...u, view: 'board' }))} />
-          {/* Todos, Media and Graph wait behind ⋯ (the usage log saw them unused); a
-              tab in use, or todos due today, keeps its button out */}
-          {(ui.shown.moreViews || ui.view === 'todos' || dueToday > 0) && (
-            <Button key="v-todos" variant={ui.view === 'todos' ? 'primary' : 'secondary'}
-              label={dueToday > 0 ? `Todos · ${dueToday}` : 'Todos'} onPress={() => setUi(u => ({ ...u, view: 'todos' }))} />
-          )}
-          {(ui.shown.moreViews || ui.view === 'media') && (
-            <Button key="v-media" variant={ui.view === 'media' ? 'primary' : 'secondary'} label="Media" onPress={() => setUi(u => ({ ...u, view: 'media' }))} />
-          )}
-          {(ui.shown.moreViews || ui.view === 'graph') && (
-            <Button key="v-graph" variant={ui.view === 'graph' ? 'primary' : 'secondary'} label="Graph" onPress={() => setUi(u => ({ ...u, view: 'graph' }))} />
-          )}
-          <Button key="more-views" variant="secondary" label={ui.shown.moreViews ? '‹' : '⋯'}
-            onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, moreViews: !u.shown.moreViews } }))} />
-          {/* only while there is something to tidy */}
-          {(d.tidy.length > 0 || ui.view === 'tidy') && (
+          {/* while there is something to tidy, or something hidden to bring back */}
+          {(d.tidy.length > 0 || d.hiddenCount > 0 || ui.view === 'tidy') && (
             <Button key="v-tidy" variant={ui.view === 'tidy' ? 'primary' : 'secondary'} label={`Tidy up · ${d.tidy.length}`}
               onPress={() => setUi(u => ({ ...u, view: 'tidy' }))} />
           )}

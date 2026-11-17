@@ -1,20 +1,18 @@
 // A session as it is drawn: its card, its quiet line, the rows on its rail.
-import type { Media, Note, Sess, Ui } from '../types'
-import { ago, baseName, dueBucket, dueWord, isWorking, overlaps, projectColor, projectLabel } from './board'
-import {
-  addTodo, editNotes, mark, markAnswered, markSeen, openFile, openSession, reveal, sendNote, startFromTodo, toggleDone,
-} from './actions'
+import type { Media, Sess, Ui } from '../types'
+import { ago, baseName, isWorking, overlaps, projectColor, projectLabel } from './board'
+import { hideMany, mark, markAnswered, markSeen, openFile, openSession, reveal } from './actions'
 import { ACCENT, chipOf, DOT, HERE, PULSE_WORKING, READY, short, stateWord, WORKING } from './draw'
 import type { Drawing } from './draw'
-import { background, INBOX, live } from './state'
+import { background, live } from './state'
 import type { $T } from './state'
 
 const KIND_MARK: Record<Media['k'], string> = { movie: '▶', image: '▣', page: '◧', file: '·' }
 
 export function makeCards($: $T, d: Drawing) {
-  const { Box, Text, Button, Input, Link } = d.table
+  const { Box, Text, Button, Link } = d.table
   const {
-    Svg, narrow, ui, marks, notes, opening, answered, now, setUi, all, byId, kidsOf, here, hereChain, find, chat, st,
+    Svg, narrow, ui, marks, opening, answered, now, setUi, all, byId, kidsOf, here, hereChain, find, chat, st,
     isUnseen, waitsForYou, isFresh, hasReported, asksYou, isPageOpen, openPages, borderOf,
   } = d
 
@@ -29,57 +27,6 @@ export function makeCards($: $T, d: Drawing) {
       </Button>
     </Box>
   )
-
-  // One todo: tick box, text, @labels and its due day, then what it can
-  // become. `owner` is its session's id, or INBOX; `s` the session, if any.
-  const todoRow = (owner: string, n: Note, s: Sess | undefined, withSession: boolean) => {
-    const bucket = dueBucket(n.due, now)
-    const isLate = !n.done && (bucket === 'overdue' || bucket === 'today')
-    return (
-      <Box key={`n-${n.id}`} flexDirection="column">
-        <Box flexDirection="row" gap={1}>
-          <Button key={`nd-${n.id}`} plain onPress={() => background($, toggleDone($, owner, n.id))}>
-            <Text dimColor={n.done}>{n.done ? '☑' : '☐'}</Text>
-          </Button>
-          <Box flexShrink={1}>
-            <Text dimColor={n.done || n.sent !== undefined} strikethrough={n.done}>
-              {n.text}
-              {(n.labels ?? []).map(l => <Text key={`nl-${n.id}-${l}`} dimColor> @{l}</Text>)}
-              {n.due && <Text color={isLate ? ACCENT : undefined} dimColor={!isLate}>  {dueWord(n.due, now)}</Text>}
-              {n.sent && <Text dimColor>  (sent as {n.sent})</Text>}
-            </Text>
-          </Box>
-        </Box>
-        {!n.done && (
-          <Box flexDirection="row" gap={1} marginLeft={2}>
-            {withSession && s && (
-              <Button key={`ng-${n.id}`} plain onPress={() => setUi(u => ({ ...u, view: 'focus', focus: s.id, open: '', tab: 'notes' }))}>
-                <Text color={projectColor(s.project)}>● </Text><Text dimColor>{s.title}</Text>
-              </Button>
-            )}
-            {s && (
-              <Button key={`np-${n.id}`} plain onPress={() => background($, sendNote($, s, n, 'prompt'))}>
-                <Text dimColor>→ prompt</Text>
-              </Button>
-            )}
-            {s && (
-              <Button key={`ns-${n.id}`} plain onPress={() => background($, sendNote($, s, n, 'subsession'))}>
-                <Text dimColor>→ subsession</Text>
-              </Button>
-            )}
-            {!s && owner === INBOX && !n.session && (
-              <Button key={`nn-${n.id}`} plain onPress={() => background($, startFromTodo($, n))}>
-                <Text dimColor>→ new session</Text>
-              </Button>
-            )}
-            <Button key={`nx-${n.id}`} plain onPress={() => background($, editNotes($, owner, l => l.filter(x => x.id !== n.id)))}>
-              <Text dimColor>remove</Text>
-            </Button>
-          </Box>
-        )}
-      </Box>
-    )
-  }
 
   // A review page's questions, listed: its title, open page, mark answered,
   // then each question on a line. Answering is on the page (the in-card answer
@@ -125,21 +72,6 @@ export function makeCards($: $T, d: Drawing) {
     )
   }
 
-  const noteBlock = (s: Sess) => {
-    const list = notes[s.id] ?? []
-    return (
-      <Box flexDirection="column">
-        {list.filter(n => !n.done).map(n => todoRow(s.id, n, s, false))}
-        {list.filter(n => n.done).map(n => todoRow(s.id, n, s, false))}
-        <Input
-          key={`na-${s.id}`}
-          placeholder="Add a todo…  @label  today / fri / 3d"
-          submitLabel="Add"
-          onSubmit={v => background($, addTodo($, s.id, v))}
-        />
-      </Box>
-    )
-  }
 
   // One subsession as a short line: its dot, its title (which opens it), what it
   // does and its age. The same line under a card, an open card and a quiet line.
@@ -252,19 +184,13 @@ export function makeCards($: $T, d: Drawing) {
     const state = st(s)
     const isOpen = ui.open === path || (depth === 0 && ui.view === 'focus' && ui.focus === s.id)
     // The grey line says only what the dot, border and corner do not: a mark you
-    // set, todos, what its subsessions do, then what the session is about (the
-    // app's own one-line status). Its age sits in the corner, as on a line.
+    // set, then what the session is about (the app's own one-line status). Its
+    // age sits in the corner, as on a line.
     const meta: string[] = []
     if (withState && ['good', 'done', 'parked'].includes(state)) meta.push(stateWord[state])
     // only what matters now: file, media and page counts are on the card's tabs
     const asks = openPages(s)
     const askCount = asks.reduce((sum, p) => sum + p.qs.length, 0)
-    // the count of open questions is drawn ahead of the meta in the accent: a scan finds them
-    const openTodos = (notes[s.id] ?? []).filter(n => !n.done && !n.sent)
-    if (openTodos.length) {
-      const dueNow = openTodos.filter(n => ['overdue', 'today'].includes(dueBucket(n.due, now))).length
-      meta.push(`${openTodos.length} todo${openTodos.length > 1 ? 's' : ''}${dueNow ? ` (${dueNow} due)` : ''}`)
-    }
     // what its subsessions are doing is on their lines under the card
     const about = s.detail.trim()
     if (about) meta.push(about)
@@ -272,15 +198,12 @@ export function makeCards($: $T, d: Drawing) {
     const parent = s.parent && depth === 0 ? byId.get(s.parent) : undefined
     const clash = isOpen ? overlaps(s, all, marks, now) : []
     const rel = isOpen ? find(s, 5) : []
-    const allNotes = notes[s.id] ?? []
-    // one detail tab at a time, five items at most: the open card stays short
+    // one detail tab at a time: the open card stays short
     const tabs: { key: Ui['tab']; label: string }[] = []
     if (s.questions.length) tabs.push({ key: 'questions', label: askCount ? `? Questions ${askCount}` : 'Questions ✓' })
     if (s.media.length + s.artifacts.length) tabs.push({ key: 'media', label: `Media ${s.media.length + s.artifacts.length}` })
     if (s.fileCount) tabs.push({ key: 'files', label: `Files ${s.fileCount}` })
     if (rel.length) tabs.push({ key: 'related', label: `Related ${rel.length}${clash.length ? ' ⚠' : ''}` })
-    const openCount = allNotes.filter(n => !n.done).length
-    tabs.push({ key: 'notes', label: allNotes.length ? `Todos ${openCount}` : '+ Todo' })
     const tab = !isOpen || ui.tab === 'none' ? '' : ui.tab
     const toggleTab = (k: Ui['tab']) => setUi(u => ({ ...u, tab: tab === k ? 'none' : k }))
     const toggleCard = () => {
@@ -396,7 +319,6 @@ export function makeCards($: $T, d: Drawing) {
                 ))}
               </Box>
             )}
-            {tab === 'notes' && noteBlock(s)}
             {s.transcript === '' && <Text dimColor>no transcript found, so files and media were never read</Text>}
 
             <Box flexDirection="row" flexWrap="wrap" gap={1} marginTop={1}>
@@ -411,6 +333,8 @@ export function makeCards($: $T, d: Drawing) {
                   onPress={() => background($, mark($, s.id, marks[s.id]?.mark === m ? null : m, s.title))} />
               ))}
               {marks[s.id] && <Button key={`x-${path}`} label="Auto" onPress={() => background($, mark($, s.id, null, s.title))} />}
+              {/* found by search though Tidy up hid it: one click puts it back on the board */}
+              {s.hidden && <Button key={`uh-${path}`} label="Unhide" onPress={() => background($, hideMany($, [s.id], false))} />}
             </Box>
           </Box>
         )}
@@ -468,7 +392,7 @@ export function makeCards($: $T, d: Drawing) {
     )
   }
 
-  return { mediaRow, todoRow, card, row, subLines }
+  return { card, row, subLines }
 }
 
 export type Cards = ReturnType<typeof makeCards>

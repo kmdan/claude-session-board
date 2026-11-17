@@ -14,13 +14,11 @@ lot of sessions at once and lose track of them, ADHD brains included.
 - **A paste box**: paste a log or a command's output and press Enter. It is
   saved as `cache/paste-<time>-<first words>.md` and its path (not the text)
   goes into this session's prompt, so Claude reads what it needs from the file.
-- **Needs you**: everything you touched today and did not close, and anything
-  that started asking for you in the last day. A session that just asked
-  **pulses** until you open its card, like the app's notification. Older asks
-  fold into **Still waiting on you**, so the top list stays short.
-- **Working**, **Today** (moved today, not touched by you yet), **Earlier this
-  week**, **Good enough**, and folded **Earlier**, **Done** and a **Parking
-  lot** for anything a month quiet or archived.
+- **Waiting for you**: what asks you or finished since you last looked, newest
+  first, and **Next ↗** to open the first you have not looked at. It folds.
+- **By project**: a section per project, the one you are in first, then the
+  last active; a line per session, its live subsessions under it. **Done** and
+  a **Parking lot** (a month quiet) stay folded at the end.
 - It checks the app's own session records every 20 seconds, so a session that
   just finished moves to its place within seconds. A session whose transcript
   was written in the last minute counts as **Working** and has a brown pulse:
@@ -29,10 +27,11 @@ lot of sessions at once and lose track of them, ADHD brains included.
   a green border, until you open it here or in the app. A **green dot** means it
   asks you something (the app says so, or a question page is open); after two
   quiet days it goes grey.
-- Every card: its status line, what it needs from you, and one tab at a time
-  for its **media** (movies, images, HTML pages and published artifacts it made),
-  **files** it wrote, **related** sessions and your **notes**.
-- **Subsessions** show as live rows under their parent and open in place.
+- Every card (▸ on a line): its status line, what it needs from you, and one tab
+  at a time for its **questions**, **media** (movies, images, HTML pages and
+  published artifacts it made), **files** it wrote and **related** sessions.
+- **Subsessions** show as short lines under their parent; an unfolded card
+  lists all of them, every level.
 - **Related sessions** to the one you are in get a warmer border, the closer
   the relation; a card that just moved or changed state glows and fades.
 
@@ -41,20 +40,14 @@ lot of sessions at once and lose track of them, ADHD brains included.
 - Mark a session **Good enough**, **Done**, **Park** or **Working**. Nothing is
   archived or deleted; the marks are the board's own.
 - **Open** a session, open a file or show it in Explorer.
-- Keep **todos** on a session, Todoist-style: type `check the cache @ops fri`
-  and `@ops` becomes a label and `fri` the due day (`today`, `tomorrow`, a
-  weekday, `3d` or `2026-11-04`). Tick them off; send one as the session's next
-  **prompt**, or ask that session to start a **subsession** for it.
-- The **Todos** view lists every open todo by **Overdue / Today / Upcoming /
-  No date**, with label chips to filter. Its **Inbox** takes todos that belong
-  to no session yet, and **→ new session** turns one into a session.
-- **Answer a session's questions on its card.** When a session writes an HTML
-  review page with question blocks (`<div class="q" data-q="Q1" data-to="me">`,
-  an `<h3>`, radio options, the recommended one marked `<span class="rec">`, a
-  `<textarea>`), the card shows **? N questions** and a **Questions** tab: pick
-  an option per question, add notes and free text, and **Send** puts the
-  answers into that session as `Q1 [me]: … | note: …`. The page itself stays
-  one click away for its movies, stills and pasted screenshots.
+- **Tidy up** lists sessions quiet a month (or done / parked and quiet three
+  days). **Hide** takes them off the board at once, with no approvals: search
+  still finds them, and **Unhide** brings them back. **Archive** asks the app
+  instead, which may want each one approved, and leaves out sessions in a worktree.
+- **See a session's questions on its card.** When a session writes an HTML
+  review page with question blocks (`<div class="q" data-q="Q1" data-to="me">`
+  and an `<h3>`), the card shows **? N questions** and a **Questions** tab
+  listing them; answer on the page, and **✓ mark answered** closes it.
 - **Search** titles, files, media, commits; press **Enter** to also search
   **what was said** in every conversation.
 

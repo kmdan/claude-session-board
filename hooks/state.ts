@@ -3,7 +3,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { Answered, FullText, HereInfo, Index, IndexMeta, Marks, Moved, Notes, Sess, Ui } from '../types'
+import type { Answered, FullText, HereInfo, Index, IndexMeta, Marks, Moved, Sess, Ui } from '../types'
 import { byRecent, chatAnswers, pageSig, stateOf } from './board'
 import type { State } from './board'
 
@@ -11,8 +11,6 @@ export type $T = EngineInterface
 
 export const PANE = 'session-board'
 export const TITLE = 'Sessions'
-// where todos that belong to no session yet are kept
-export const INBOX = '_inbox'
 
 // The index's small facts live in shared state (a drawing subscribes to them);
 // the sessions themselves (1.2 MB at 660) stay in this module's memory. In
@@ -25,7 +23,6 @@ const indexAtom = atom({ plugin: 'session-board', key: 'index' } as const,
 const uiAtom = atom({ plugin: 'session-board', key: 'ui' } as const,
   { query: '', project: '', open: '', limits: {}, shown: {}, view: 'board', focus: '', tab: '', label: '' } as Ui)
 const marksAtom = atom({ plugin: 'session-board', key: 'marks' } as const, {} as Marks)
-const notesAtom = atom({ plugin: 'session-board', key: 'notes' } as const, {} as Notes)
 const fullTextAtom = atom({ plugin: 'session-board', key: 'fullText' } as const,
   { query: '', hits: [], isLoading: false, note: '' } as FullText)
 const movedAtom = atom({ plugin: 'session-board', key: 'moved' } as const, {} as Moved)
@@ -33,6 +30,13 @@ const openingAtom = atom({ plugin: 'session-board', key: 'opening' } as const, '
 const answeredAtom = atom({ plugin: 'session-board', key: 'answered' } as const, {} as Answered)
 // per session, when you last opened its card or the session: a newer ask pulses
 const seenAtom = atom({ plugin: 'session-board', key: 'seen' } as const, {} as Record<string, number>)
+// sessions Tidy up took off the board (here only; the app keeps them), by id: when
+const hiddenAtom = atom({ plugin: 'session-board', key: 'hidden' } as const, {} as Record<string, number>)
+
+export async function setHidden($: $T, next: Record<string, number>): Promise<void> {
+  await update($, hiddenAtom, () => next)
+}
+
 // the top line: this session's branch, changes and context fill
 const hereInfoAtom = atom({ plugin: 'session-board', key: 'hereInfo' } as const, { cwd: '' } as HereInfo)
 
@@ -45,9 +49,9 @@ export async function setHereInfo($: $T, next: HereInfo): Promise<void> {
 export async function readShared($: $T) {
   return {
     hereInfo: (await read($, hereInfoAtom)) ?? { cwd: '' },
+    hidden: (await read($, hiddenAtom)) ?? {},
     ui: await read($, uiAtom),
     marks: (await read($, marksAtom)) ?? {},
-    notes: (await read($, notesAtom)) ?? {},
     moved: (await read($, movedAtom)) ?? {},
     opening: (await read($, openingAtom)) ?? '',
     answered: (await read($, answeredAtom)) ?? {},
@@ -121,9 +125,6 @@ export async function setMarks($: $T, next: Marks): Promise<void> {
   await update($, marksAtom, () => next)
 }
 
-export async function setNotes($: $T, next: Notes): Promise<void> {
-  await update($, notesAtom, () => next)
-}
 
 export async function setAnswered($: $T, next: Answered): Promise<void> {
   await update($, answeredAtom, () => next)
@@ -247,10 +248,10 @@ async function recordChatAnswers($: $T, sessions: Sess[]): Promise<void> {
 export async function loadStored($: $T): Promise<void> {
   const marks = (await $.store.get('marks')) as Marks | undefined
   if (marks) await update($, marksAtom, () => marks)
-  const notes = (await $.store.get('notes')) as Notes | undefined
-  if (notes) await update($, notesAtom, () => notes)
   const answered = (await $.store.get('answered')) as Answered | undefined
   if (answered) await update($, answeredAtom, () => answered)
   const seen = (await $.store.get('seen')) as Record<string, number> | undefined
   if (seen) await update($, seenAtom, () => seen)
+  const hidden = (await $.store.get('hidden')) as Record<string, number> | undefined
+  if (hidden) await update($, hiddenAtom, () => hidden)
 }

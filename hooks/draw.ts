@@ -1,11 +1,11 @@
 // One drawing's facts: the colours, the values read from state, and what is
 // worked out from them, shared by the cards, sections and views.
-import type { Note, QPage, Sess, Ui } from '../types'
-import { byRecent, chatAnswers, dueBucket, isAsking, isOpenPage, isWorking, relatedFinder, stateOf } from './board'
+import type { QPage, Sess, Ui } from '../types'
+import { byRecent, chatAnswers, isAsking, isOpenPage, isWorking, relatedFinder, stateOf } from './board'
 import type { Related, State } from './board'
 import { trailOf } from './actions'
 import { refreshHereInfo } from './indexing'
-import { background, GLOW, INBOX, live, readIndex, readShared, updateUi } from './state'
+import { background, GLOW, live, readIndex, readShared, updateUi } from './state'
 import type { $T } from './state'
 
 // Calm on purpose (a red "needs you" reads as alarm): one muted accent for
@@ -96,7 +96,19 @@ function listsOf(all: Sess[]) {
   return lists
 }
 
-export type TodoRow = { owner: string; n: Note; s?: Sess }
+// The sessions with Tidy up's hidden ones counted as archived (here only: the
+// app keeps them). Worked out once per list and hidden set: the same pair gives
+// the very same list, so the per-list work above is reused.
+let hiddenMemo = { src: undefined as Sess[] | undefined, key: '', out: [] as Sess[] }
+
+function withHidden(src: Sess[], hidden: Record<string, number>): Sess[] {
+  const key = Object.keys(hidden).sort().join(',')
+  if (hiddenMemo.src === src && hiddenMemo.key === key) return hiddenMemo.out
+  const out = key ? src.map(s => (hidden[s.id] && !s.archived ? { ...s, archived: true, hidden: true } : s)) : src
+  hiddenMemo = { src, key, out }
+  return out
+}
+
 
 /**
  * Everything a drawing reads. Each drawing makes one; the cards, sections and
@@ -113,11 +125,12 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
   // how many rows the pane shows at once: a list standing alone fills them
   const bodyRows = (e.props as { scroll?: { bodyRows?: number } }).scroll?.bodyRows ?? 40
   const ix = await readIndex($)
-  const { ui, marks, notes, moved, opening, answered, seen, fullText, hereInfo } = await readShared($)
+  const { ui, marks, moved, opening, answered, seen, fullText, hereInfo, hidden } = await readShared($)
   const now = Date.now()
 
   const setUi = (fn: (u: Ui) => Ui) => background($, updateUi($, fn))
-  const all = ix.sessions
+  const all = withHidden(ix.sessions, hidden)
+  const hiddenIds = Object.keys(hidden)
   selfCli ??= await $.session.id()
   const { byId, byCli, sorted, kidsOf, byTouched } = listsOf(all)
 
@@ -232,10 +245,6 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
   for (const s of all) if (!s.archived && now - s.last < 7 * 86_400_000) weekCount[chipOf(s.project)] = (weekCount[chipOf(s.project)] ?? 0) + 1
   const chips = Object.entries(weekCount).sort((a, b) => b[1] - a[1]).map(([p]) => p)
 
-  // Every todo, with its session
-  const allTodos: TodoRow[] = Object.entries(notes).flatMap(([owner, list]) =>
-    list.map(n => ({ owner, n, s: owner === INBOX ? undefined : byId.get(owner) })))
-  const dueToday = allTodos.filter(r => !r.n.done && ['overdue', 'today'].includes(dueBucket(r.n.due, now))).length
   const recentTrail = byTouched.filter(s => !here || s.id !== here.id).slice(0, 30).map(s => s.id)
   const trail = await trailOf($, here?.id)
   const backTo = trail ? trail.list[trail.pos + 1] : recentTrail[0]
@@ -260,7 +269,8 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
   const tidy = tidyAll.filter(s => !(s.parent && tidyIds.has(s.parent)))
   // a session in its own worktree: archiving removes that worktree, so it is unticked unless you tick it
   const inWorktree = (s: Sess) => /[\\/](worktrees?|\.claude[\\/]worktrees)[\\/]/i.test(s.cwd)
-  const isTicked = (s: Sess) => ui.tidyPick?.[s.id] ?? !inWorktree(s)
+  // all ticked to start: hiding is harmless (Archive leaves worktree sessions out itself)
+  const isTicked = (s: Sess) => ui.tidyPick?.[s.id] ?? true
 
   // Waiting for you: what asks you (the app says so, or a question page is open;
   // two days, as the green dot) and what finished since you last looked (a week).
@@ -274,11 +284,11 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
   const next = waiting.find(s => !looked(s)) ?? waiting[0]
 
   return {
-    table, Svg, bodyColumns, bodyRows, narrow, ix, ui, marks, notes, moved, opening, answered, seen, fullText, now, setUi,
+    table, Svg, bodyColumns, bodyRows, narrow, ix, ui, marks, moved, opening, answered, seen, fullText, now, setUi,
     all, byId, byCli, kidsOf, here, hereChain, find, chat, st,
     finishedForYou, isUnseen, waitsForYou, isFresh, hasReported, asksYou, isPageOpen, openPages, borderOf,
-    inChip, inProject, listed, groups, topLevel, chips, allTodos, dueToday, recentTrail, trail, backTo, hereInfo,
-    tidy, famLast, inWorktree, isTicked, waiting, next, looked,
+    inChip, inProject, listed, groups, topLevel, chips, recentTrail, trail, backTo, hereInfo,
+    tidy, famLast, inWorktree, isTicked, waiting, next, looked, hiddenIds, hiddenCount: hiddenIds.length,
   }
 }
 

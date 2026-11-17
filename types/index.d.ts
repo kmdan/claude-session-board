@@ -62,6 +62,8 @@ export type Sess = {
   answers: { title: string; at: number }[]
   /** filled from the app's live session list; false when that list was unreachable */
   running: boolean
+  /** taken off the board by Tidy up (the board then counts it as archived; the app does not) */
+  hidden?: boolean
 }
 
 export type Index = {
@@ -177,6 +179,8 @@ declare module 'claude-code' {
       drafts: Drafts
       seen: Record<string, number>
       hereInfo: HereInfo
+      /** sessions Tidy up took off the board (the app keeps them), by id: when */
+      hidden: Record<string, number>
     }
   }
 }

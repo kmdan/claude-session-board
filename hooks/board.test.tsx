@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { dayOf, dueBucket, isOpenPage, layoutGraph, pageSig, parseQuick, startOfDay, stateOf } from './board'
+import { isOpenPage, pageSig, startOfDay, stateOf } from './board'
 
 const PANE = {
   plugin: 'session-board',
@@ -153,10 +153,6 @@ async function start($: any, on: any, store?: Record<string, unknown>, self?: st
   engine(on, store, self, ownClock)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.command.run({ command: 'board' })
-  // the board opens by project; most tests here are about the sections by state
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  await ui.press({ key: 'by-state' })
-  await ui.unmount()
 }
 
 // full index runs only (not --search or --quick)
@@ -211,9 +207,9 @@ test('timing at a real size: 660 sessions, first draw, a search keystroke, unfol
     times.searchKeystroke = performance.now() - t0
     await ui.input({ key: 'q', text: '', kind: 'change' })
     t0 = performance.now()
-    await ui.press({ key: 'show-waiting' })
+    await ui.press({ key: 'show-parked' })
     times.unfoldSection = performance.now() - t0
-    // single presses are noisy: the middle of 21 redraws of each order
+    // single presses are noisy: the middle of 21 redraws
     const middle = async (keys: string[]) => {
       const ms: number[] = []
       for (let i = 0; i < 21; i += 1) {
@@ -223,9 +219,7 @@ test('timing at a real size: 660 sessions, first draw, a search keystroke, unfol
       }
       return ms.sort((a, b) => a - b)[10]
     }
-    times.redrawByState = await middle(['hide-waiting', 'show-waiting'])
-    await ui.press({ key: 'by-project' })
-    times.redrawByProject = await middle(['show-parked', 'hide-parked'])
+    times.redraw = await middle(['hide-parked', 'show-parked'])
     console.log(`TIMING ${JSON.stringify(Object.fromEntries(Object.entries(times).map(([k, v]) => [k, Math.round(v)])))}`)
     await ui.unmount()
   } finally {
@@ -241,17 +235,16 @@ test('a subsession that just asked is a short line under its main card, and open
   try {
     await start($, on)
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-    // its main session is in Needs you too: it is a line under that card, not a second card
+    // its main session is listed in the same project: it is a line under it, not a line of its own
     const nested = 'sl-Parser rewrite>Parser edge cases'
     expect(await ui.find({ key: nested })).toBeDefined()
     expect(await ui.find({ key: 't-Parser edge cases' })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: /asks you · / })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /sub asks you/ })).toBeUndefined()
-    expect(await ui.find({ type: 'Text', text: /^Needs you 1(?!\d)/ })).toBeDefined()
     // it needs no "Parent ›" line: it sits under its parent
     expect(await ui.find({ type: 'Text', text: /^Parser rewrite ›$/ })).toBeUndefined()
-    // the line stays the same on the open card; a click opens the subsession itself
-    await ui.press({ key: 't-Parser rewrite' })
+    // the line stays the same on the unfolded card; a click opens the subsession itself
+    await ui.press({ key: 'u-Parser rewrite' })
     expect(await ui.find({ key: 'o-Parser rewrite' })).toBeDefined()
     expect(await ui.find({ key: nested })).toBeDefined()
     await ui.press({ key: nested })
@@ -271,12 +264,11 @@ test('a subsession that only reported back stays under its parent, which says so
     await start($, on)
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
     expect(await ui.find({ type: 'Text', text: /reported · / })).toBeDefined()
-    // not asking you: out of Needs you (only its parent there), and not listed on its own
-    // anywhere: it is a line under its main session
-    expect(await ui.find({ type: 'Text', text: /^Needs you 1(?!\d)/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^Today \d/ })).toBeUndefined()
+    // not asking you: not listed on its own anywhere, a line under its main session
+    expect(await ui.find({ key: 'row-Parser edge cases' })).toBeUndefined()
+    expect(await ui.find({ key: 'wt-Parser edge cases' })).toBeUndefined()
     expect(await ui.find({ key: 'sl-Parser rewrite>Parser edge cases' })).toBeDefined()
-    await ui.press({ key: 't-Parser rewrite' })
+    await ui.press({ key: 'u-Parser rewrite' })
     expect(await ui.find({ key: 'o-Parser rewrite' })).toBeDefined()
     await ui.unmount()
   } finally {
@@ -293,15 +285,17 @@ test('a session that just asked for you has a still green dot, not a pulse; only
     await start($, on)
     // desktop: the pulses are SVGs
     const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-    // Needs you comes before Working: were the waiting card to pulse, its pulse would be first
-    const firstPulse = async () => ((await ui.find({ type: 'Svg' } as any)) as any)?.props?.alt
-    expect(await firstPulse()).toBe('working now')
+    // only the working session pulses (Docs audit); the one that asks has a still dot
+    const pulses = async () => ((await ui.findAll({ type: 'Svg' } as any)) as any[]).map(s => s?.props?.alt)
+    expect(await pulses()).toEqual(['working now'])
     const dot = async () => (await ui.find({ type: 'Text', text: '●', props: { color: '#5fae6e' } } as any))?.props?.color
     expect(await dot()).toBe('#5fae6e')
     const border = async () => (await ui.find({ key: 'c-Parser rewrite' }))?.props?.borderColor
+    await ui.press({ key: 'u-Parser rewrite' })
     expect(await border()).toBe('#5fae6e')
+    // folded back by its title: looked at now
     await ui.press({ key: 't-Parser rewrite' })
-    await ui.press({ key: 't-Parser rewrite' })
+    await ui.press({ key: 'u-Parser rewrite' })
     // looked at: the green border goes; it still asks you: the green dot stays
     expect(await border()).not.toBe('#5fae6e')
     expect(await dot()).toBe('#5fae6e')
@@ -326,60 +320,6 @@ test('a question page closes when answered anywhere, and opens again only for ne
   expect(isOpenPage({ ...page, t: 300 }, { [page.p]: { at: 120, t: 100 } })).toBe(false)
 })
 
-test('quick add reads labels and one date word out of the text', () => {
-  // a Wednesday at noon
-  const wed = new Date(2026, 9, 21, 12).getTime()
-  expect(parseQuick('fix the export @ops @client fri', wed)).toEqual({ text: 'fix the export', labels: ['ops', 'client'], due: '2026-10-23' })
-  expect(parseQuick('call back tomorrow', wed).due).toBe('2026-10-22')
-  expect(parseQuick('review today', wed).due).toBe('2026-10-21')
-  expect(parseQuick('ship it 3d', wed).due).toBe('2026-10-24')
-  // a weekday that is today means next week's, as in Todoist
-  expect(parseQuick('standup wed', wed).due).toBe('2026-10-28')
-  expect(parseQuick('due 2026-11-04', wed).due).toBe('2026-11-04')
-  // only the first date word is a date; words that only look like one stay text
-  expect(parseQuick('today and tomorrow', wed)).toEqual({ text: 'and tomorrow', labels: [], due: '2026-10-21' })
-  expect(parseQuick('wednesdays notes', wed)).toEqual({ text: 'wednesdays notes', labels: [], due: undefined })
-  expect([dueBucket('2026-10-20', wed), dueBucket(dayOf(wed), wed), dueBucket('2026-10-30', wed), dueBucket(undefined, wed)])
-    .toEqual(['overdue', 'today', 'upcoming', 'none'])
-})
-
-test('the Todos view: Inbox quick add, Today, label filter, tick, and a session from a todo', async ($, on) => {
-  const store: Record<string, unknown> = {}
-  await start($, on, store)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  // Todos waits behind ⋯ until something is due
-  expect(await ui.find({ key: 'v-todos' })).toBeUndefined()
-  await ui.press({ key: 'more-views' })
-  await ui.press({ key: 'v-todos' })
-  await ui.input({ key: 'todo-add', text: 'check the cache size @ops today' })
-  await ui.input({ key: 'todo-add', text: 'write the release notes @docs' })
-  const inbox = (store.notes as Record<string, { id: string; text: string; labels: string[]; due?: string }[]>)._inbox
-  expect(inbox.map(n => [n.text, n.labels, n.due !== undefined])).toEqual([
-    ['check the cache size', ['ops'], true], ['write the release notes', ['docs'], false],
-  ])
-  expect(await ui.find({ type: 'Text', text: /^Today \(1\)/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^No date \(1\)/ })).toBeDefined()
-  expect(await ui.find({ key: 'v-todos' })).toMatchObject({ props: { label: 'Todos · 1' } })
-
-  // the label chip filters
-  await ui.press({ key: 'l-docs' })
-  expect(await ui.find({ type: 'Text', text: /^Today/ })).toBeUndefined()
-  await ui.press({ key: 'l-docs' })
-
-  // tick: it leaves the open lists and folds into Done
-  await ui.press({ key: `nd-${inbox[0].id}` })
-  expect(await ui.find({ type: 'Text', text: /^Today/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /Done \(1\) · show/ })).toBeDefined()
-
-  // an Inbox todo becomes a session, briefed with its text
-  started.length = 0
-  await ui.press({ key: `nn-${inbox[1].id}` })
-  expect(started.map(s => s.prompt)).toEqual(['write the release notes'])
-  const after = (store.notes as Record<string, { sent?: string; session?: string }[]>)._inbox[1]
-  expect([after.sent, after.session]).toEqual(['session', 'local_00000000-0000-0000-0000-000000000001'])
-  await ui.unmount()
-})
-
 test('a session start opens the board; the first indexes, a second reads its snapshot', async ($, on) => {
   logged.length = 0
   for (const k of Object.keys(disk)) delete disk[k]
@@ -395,16 +335,15 @@ test('a session start opens the board; the first indexes, a second reads its sna
   await ui.unmount()
 })
 
-test('the board opens by project; By state switches to the sections', async ($, on) => {
+test('the board is by project only: no order switch, and no Todos, Media or Graph tabs', async ($, on) => {
   engine(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ key: 'by-project' })).toMatchObject({ props: { variant: 'primary' } })
   expect(await ui.find({ type: 'Text', text: /^webapp \d+ · active .* ago/ })).toBeDefined()
+  for (const key of ['by-state', 'by-project', 'v-todos', 'v-media', 'v-graph', 'more-views']) {
+    expect(await ui.find({ key })).toBeUndefined()
+  }
   expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeUndefined()
-  await ui.press({ key: 'by-state' })
-  expect(await ui.find({ key: 'by-state' })).toMatchObject({ props: { variant: 'primary' } })
-  expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeDefined()
   await ui.unmount()
 })
 
@@ -454,7 +393,6 @@ test('the green dot means it asks you, for two days: a finished session or an ol
   try {
     await start($, on)
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-    await ui.press({ key: 'by-project' })
     // all four are listed; only the first two are green
     for (const id of ['Asks now', 'Page open', 'Asked long ago', 'Just finished']) {
       expect(await ui.find({ key: `row-${id}` })).toBeDefined()
@@ -495,23 +433,49 @@ test('what you do on the board is logged locally, one line each, for later sugge
   for (const k of Object.keys(disk)) delete disk[k]
   await start($, on, undefined, undefined, false)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  await ui.press({ key: 'by-project' })
+  await ui.press({ key: 'v-tidy' })
+  await ui.press({ key: 'v-board' })
   await ui.press({ key: 't-Docs audit' })
   await clock.advance(60_000)
   const file = Object.keys(disk).find(p => /cache[\\/]usage-\d{4}-\d\d-\d\d-[\w-]+\.jsonl$/.test(p))
   expect(file).toBeDefined()
   const lines = disk[file!].text.trim().split('\n').map(l => JSON.parse(l))
-  expect(lines.some(l => l.what === 'ui' && l.key === 'boardBy' && l.to === 'project')).toBe(true)
+  expect(lines.some(l => l.what === 'ui' && l.key === 'view' && l.to === 'tidy')).toBe(true)
   expect(lines.some(l => l.what === 'open' && l.via === 'line-title' && l.id === 'Docs audit')).toBe(true)
   // a later flush keeps what was written before
-  await ui.press({ key: 'by-state' })
+  await ui.press({ key: 'v-tidy' })
   await clock.advance(60_000)
   const again = disk[file!].text.trim().split('\n')
   expect(again.length).toBe(lines.length + 1)
   await ui.unmount()
 })
 
-test('Tidy up lists what has been quiet a month, worktrees unticked, and archives the ticked ones', async ($, on) => {
+test('Tidy up hides what has been quiet a month from the board, at once and undoably; search still finds it', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  for (const k of Object.keys(disk)) delete disk[k]
+  archived.length = 0
+  await start($, on, store)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'show-parked' })
+  expect(await ui.find({ key: 'row-Old probe' })).toBeDefined()
+  await ui.press({ key: 'v-tidy' })
+  expect((await ui.find({ key: 'tidy-hide' }) as any)?.props?.label).toBe('Hide 1 from the board')
+  await ui.press({ key: 'tidy-hide' })
+  // no approvals asked: the app was not called; kept in the store for every session's board
+  expect(archived).toEqual([])
+  expect(Object.keys(store.hidden as object)).toEqual(['Old probe'])
+  expect(await ui.find({ key: 'td-Old probe' })).toBeUndefined()
+  await ui.press({ key: 'v-board' })
+  expect(await ui.find({ key: 'row-Old probe' })).toBeUndefined()
+  // search still finds it, and its card brings it back
+  await ui.input({ key: 'q', text: 'Old probe' })
+  await ui.press({ key: 't-Old probe' })
+  await ui.press({ key: 'uh-Old probe' })
+  expect(Object.keys(store.hidden as object)).toEqual([])
+  await ui.unmount()
+})
+
+test('Tidy up lists what has been quiet a month and archives the ticked ones in the app, worktrees left out', async ($, on) => {
   const saved = INDEX.sessions
   const old = NOW - 40 * 24 * H
   INDEX.sessions = [
@@ -530,8 +494,9 @@ test('Tidy up lists what has been quiet a month, worktrees unticked, and archive
     await ui.press({ key: 'v-tidy' })
     expect(await ui.find({ key: 'td-Old probe' })).toBeDefined()
     expect(await ui.find({ key: 'td-Old with busy child' })).toBeUndefined()
-    expect((await ui.find({ key: 'tk-Old in worktree' }) as any)?.text).toBe('☐')
-    expect((await ui.find({ key: 'tidy-archive' }) as any)?.props?.label).toBe('Archive 1 ticked')
+    // all ticked (hiding is harmless); Archive leaves the worktree one out
+    expect((await ui.find({ key: 'tk-Old in worktree' }) as any)?.text).toBe('☑')
+    expect((await ui.find({ key: 'tidy-archive' }) as any)?.props?.label).toBe('Archive 1 in the app')
     await ui.press({ key: 'tidy-archive' })
     expect(archived).toEqual(['Old probe'])
     // gone from the list at once
@@ -729,7 +694,6 @@ test('opening a session you have already seen does not write or redraw for it', 
   const store: Record<string, unknown> = {}
   await start($, on, store)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  await ui.press({ key: 'by-project' })
   // an unseen one is marked on the way out
   await ui.press({ key: 't-Docs audit' })
   const seenAt = (store.seen as Record<string, number>)['Docs audit']
@@ -770,7 +734,7 @@ test('Enter searches what was said in conversations, and a hit opens its card', 
   // emptying the box (no Enter) brings the board back at once, with no wait on a timer
   await ui.input({ key: 'q', text: '', kind: 'change' })
   expect(await ui.find({ type: 'Text', text: /Said in conversations/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^webapp \d+ · active/ })).toBeDefined()
   // a second search after it works too, and clears again
   await ui.input({ key: 'q', text: 'parser', kind: 'change' })
   await clock.advance(200)
@@ -778,7 +742,7 @@ test('Enter searches what was said in conversations, and a hit opens its card', 
   // ✕ clears in one click: the board is back and the box drawn anew, empty
   await ui.press({ key: 'q-clear' })
   expect(await ui.find({ type: 'Text', text: /^Found for/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^webapp \d+ · active/ })).toBeDefined()
   expect(await ui.find({ key: 'q1' })).toBeDefined()
   expect(await ui.find({ key: 'q-clear' })).toBeUndefined()
   await ui.unmount()
@@ -787,13 +751,14 @@ test('Enter searches what was said in conversations, and a hit opens its card', 
 test('a card that changes section glows, then fades back in three steps', async ($, on) => {
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  await ui.press({ key: 't-Parser rewrite' })
+  await ui.press({ key: 'u-Parser rewrite' })
   const before = await ui.find({ key: 'c-Parser rewrite' })
-  // marked working: it moves from Needs you to Working, open as it was, and glows there
+  // marked working: its state changes, the card stays open, and glows
   await ui.press({ key: 'w-Parser rewrite' })
   const after = await ui.find({ key: 'c-Parser rewrite' })
-  // the brightest glow step right after the move, against the plain border before
-  expect([before?.props?.borderColor, after?.props?.borderColor]).toEqual(['#3a3a40', '#e0b878'])
+  // the brightest glow step right after the change; before it, no glow
+  expect(before?.props?.borderColor).not.toBe('#e0b878')
+  expect(after?.props?.borderColor).toBe('#e0b878')
   await ui.unmount()
 })
 
@@ -817,13 +782,9 @@ test('the watched session is on top under Here and stays in its own place too; i
   await start($, on, {}, 'cli-Docs audit')
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ key: 't-@Docs audit' })).toBeDefined()
-  // by state: still in Working, where it was
+  // still in its own place, as a line
   expect(await ui.find({ key: 'row-Docs audit' })).toBeDefined()
-  // and counted there: Docs audit is the one working session
-  expect(await ui.find({ type: 'Text', text: /^Working 1(?!\d)/ })).toBeDefined()
-  // by project: its project (api) is first, though webapp moved as recently
-  await ui.press({ key: 'by-project' })
-  expect(await ui.find({ key: 'row-Docs audit' })).toBeDefined()
+  // its project (api) is first, though webapp moved as recently
   // the whole heading (name and count); its count alone is a Text of its own too
   const headings = (await ui.findAll({ type: 'Text', text: /^\S.* · active / })).map(t => t.text)
   expect(headings[0]).toMatch(/^api /)
@@ -840,47 +801,6 @@ test('a watched subsession is drawn inside its main session\'s frame, as on the 
   expect(await ui.find({ key: 'go-@Parser rewrite' })).toBeDefined()
   // nested, so no "Parent ›" line on the card itself
   expect(await ui.find({ key: 'up-@Parser rewrite>Parser edge cases' })).toBeUndefined()
-  await ui.unmount()
-})
-
-test('the graph puts related sessions together, every dot on its own cell, in the frame, the same way twice', () => {
-  // two groups of five, related inside each group only
-  const titles = Array.from({ length: 10 }, (_, i) => `session number ${i}`)
-  const edges: [number, number, number][] = []
-  for (const g of [0, 5]) for (let a = g; a < g + 5; a++) for (let b = a + 1; b < g + 5; b++) edges.push([a, b, 6])
-  const spots = layoutGraph(titles, edges, 60, 16)
-  expect(spots.length).toBe(10)
-  expect(new Set(spots.map(p => `${p.x},${p.y}`)).size).toBe(10)
-  expect(spots.every(p => p.x >= 0 && p.x < 60 && p.y >= 0 && p.y < 16)).toBe(true)
-  // a name never runs past the edge, nor into the next dot on its row (with its gap)
-  expect(spots.every(p => p.x + 1 + p.label.length + 1 <= 61)).toBe(true)
-  for (const p of spots) {
-    if (!p.label) continue
-    const end = p.x + 1 + p.label.length + 1 + Math.ceil(p.label.length / 4)
-    expect(spots.some(q => q.y === p.y && q.x > p.x && q.x < Math.min(end, 60))).toBe(false)
-  }
-  const at = (i: number) => spots.find(p => p.i === i)!
-  const dist = (a: number, b: number) => Math.hypot(at(a).x - at(b).x, (at(a).y - at(b).y) * 2)
-  const mean = (pairs: [number, number][]) => pairs.reduce((s, [a, b]) => s + dist(a, b), 0) / pairs.length
-  const inside: [number, number][] = edges.map(([a, b]) => [a, b])
-  const across: [number, number][] = [0, 1, 2, 3, 4].flatMap(a => [5, 6, 7, 8, 9].map(b => [a, b] as [number, number]))
-  expect(mean(inside)).toBeLessThan(mean(across) * 0.6)
-  expect(layoutGraph(titles, edges, 60, 16)).toEqual(spots)
-})
-
-test('the Graph tab shows the sessions as dots; a click opens one and back returns to the graph', async ($, on) => {
-  await start($, on)
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  await ui.press({ key: 'more-views' })
-  await ui.press({ key: 'v-graph' })
-  expect(await ui.find({ key: 'g-Parser rewrite' })).toBeDefined()
-  // archived and month-quiet sessions are not on it
-  expect(await ui.find({ key: 'g-Archived exporter' })).toBeUndefined()
-  expect(await ui.find({ key: 'g-Old probe' })).toBeUndefined()
-  await ui.press({ key: 'g-Parser rewrite' })
-  expect(await ui.find({ type: 'Text', text: /back to the graph/ })).toBeDefined()
-  await ui.press({ key: 'back' })
-  expect(await ui.find({ key: 'g-Parser rewrite' })).toBeDefined()
   await ui.unmount()
 })
 
@@ -906,10 +826,9 @@ test('‹ steps back to the session you were in before, › forward again from t
   }
 })
 
-test('the board switches to by project: a section per project, the project last edited first', async ($, on) => {
+test('the board is a section per project, the project last edited first, a line per session', async ($, on) => {
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  await ui.press({ key: 'by-project' })
   const webapp = await ui.find({ type: 'Text', text: /^webapp \d+ · active .* ago/ })
   const api = await ui.find({ type: 'Text', text: /^api \d+ · active .* ago/ })
   expect(webapp).toBeDefined()
@@ -930,8 +849,6 @@ test('the board switches to by project: a section per project, the project last 
   await ui.press({ key: 't-Docs audit' })
   expect(await ui.find({ key: 'c-Docs audit' })).toBeUndefined()
   expect(await ui.find({ key: 'u-Docs audit' })).toBeDefined()
-  await ui.press({ key: 'by-state' })
-  expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeDefined()
   await ui.unmount()
 })
 
@@ -972,13 +889,13 @@ test('a mark keeps the marks another session wrote since this one loaded', async
   await start($, on, store)
   store.marks = { 'Old probe': { mark: 'done', at: 1 } } // written by another session meanwhile
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  await ui.press({ key: 't-Parser rewrite' })
+  await ui.press({ key: 'u-Parser rewrite' })
   await ui.press({ key: 'g-Parser rewrite' })
   expect(Object.keys(store.marks as object).sort()).toEqual(['Old probe', 'Parser rewrite'])
   await ui.unmount()
 })
 
-test('the board sorts sessions into needs-you, working and parked, on every surface with input', async ($, on) => {
+test('the board lists each project\'s sessions as lines, quiet ones folded, archived ones not at all, on every surface', async ($, on) => {
   await start($, on)
 
   for (const surface of ['terminal', 'desktop'] as const) {
@@ -986,15 +903,11 @@ test('the board sorts sessions into needs-you, working and parked, on every surf
     // the old counts line is gone: no Here here, so the top says only "Sessions"
     expect(await ui.find({ type: 'Text', text: /need you ·/ })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: /^Sessions$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^Needs you 1(?!\d)/ })).toBeDefined()
-    expect((await ui.find({ key: 'show-waiting' }) as any)?.props?.label).toBe('Still waiting on you, 1-7 days · 1 ▾')
-    expect(await ui.find({ type: 'Text', text: /^Working 1(?!\d)/ })).toBeDefined()
-    // the month-quiet one only: archived sessions are left off the board (search finds them)
+    expect(await ui.find({ key: 'row-Parser rewrite' })).toBeDefined()
+    expect(await ui.find({ key: 'row-Docs audit' })).toBeDefined()
+    // the month-quiet one folds into the Parking lot; archived sessions are left off the board (search finds them)
     expect((await ui.find({ key: 'show-parked' }) as any)?.props?.label).toBe('Parking lot · 1 ▾')
     expect(await ui.find({ key: 'row-Archived exporter' })).toBeUndefined()
-    // the project (its folder name, with no projects.json) sits on its row (working: one quiet line)
-    expect(await ui.find({ type: 'Text', text: /^api$/ })).toBeDefined()
-    expect(await ui.find({ key: 'row-Docs audit' })).toBeDefined()
     await ui.unmount()
   }
 })
@@ -1003,7 +916,7 @@ test('marking a session good enough moves it, and the files overlap shows', asyn
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  await ui.press({ key: 't-Parser rewrite' })
+  await ui.press({ key: 'u-Parser rewrite' })
   // details stay folded until one tab is opened
   expect(await ui.find({ type: 'Text', text: /also editing the same files/ })).toBeUndefined()
   await ui.press({ key: 'tab-Parser rewrite-related' })
@@ -1011,10 +924,11 @@ test('marking a session good enough moves it, and the files overlap shows', asyn
   await ui.press({ key: 'o-Parser rewrite' })
   expect(ran.some(a => a.join(' ').includes('claude://claude.ai/epitaxy/Parser rewrite'))).toBe(true)
 
-  // good enough: out of Needs you, into the folded Good enough
+  // good enough: the card says so, and it leaves Waiting for you
+  expect(await ui.find({ key: 'wt-Parser rewrite' })).toBeDefined()
   await ui.press({ key: 'g-Parser rewrite' })
-  expect(await ui.find({ type: 'Text', text: /^Needs you \d/ })).toBeUndefined()
-  expect((await ui.find({ key: 'show-good' }) as any)?.props?.label).toBe('Good enough · 1 ▾')
+  expect(await ui.find({ key: 'g-Parser rewrite' })).toMatchObject({ props: { label: '✓ Good enough' } })
+  expect(await ui.find({ key: 'wt-Parser rewrite' })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -1030,44 +944,23 @@ test('search finds an archived session by a file it wrote and by its commit', as
   // opening the found session leaves for it: the board you come back to has no search on
   await ui.press({ key: 'go-Archived exporter' })
   expect(await ui.find({ type: 'Text', text: /^Found for/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^webapp \d+ · active/ })).toBeDefined()
   expect(await ui.find({ key: 'q-clear' })).toBeUndefined()
   await ui.unmount()
 })
 
-test('the media view lists movies and pages newest first, and a click opens the file', async ($, on) => {
+test('a card\'s Media tab lists what the session made, and a click opens the file', async ($, on) => {
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  await ui.press({ key: 'more-views' })
-  await ui.press({ key: 'v-media' })
-  expect(await ui.find({ type: 'Text', text: /newest first \(2\)/ })).toBeDefined()
+  await ui.press({ key: 'u-Parser rewrite' })
+  await ui.press({ key: 'tab-Parser rewrite-media' })
   await ui.press({ key: 'mo-Parser rewrite-C:\\out\\demo_walkthrough.mov' })
   expect(ran.some(a => a[0] === 'explorer.exe' && a[1] === 'C:\\out\\demo_walkthrough.mov')).toBe(true)
   await ui.unmount()
 })
 
-test('a quick note is kept, and goes to its session as a prompt or as a subsession request', async ($, on) => {
-  const store: Record<string, unknown> = {}
-  await start($, on, store)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-
-  await ui.press({ key: 't-Parser rewrite' })
-  await ui.press({ key: 'tab-Parser rewrite-notes' })
-  await ui.input({ key: 'na-Parser rewrite', text: 'try the empty-file case' })
-  const notes = store.notes as Record<string, { id: string; text: string }[]>
-  expect(notes['Parser rewrite'].map(n => n.text)).toEqual(['try the empty-file case'])
-
-  const id = notes['Parser rewrite'][0].id
-  sent.length = 0
-  await ui.press({ key: `np-${id}` })
-  expect(sent[0]).toEqual({ session_id: 'Parser rewrite', message: 'try the empty-file case' })
-  await ui.press({ key: `ns-${id}` })
-  expect(sent[1].message).toMatch(/start_session[\s\S]*try the empty-file case/)
-  await ui.unmount()
-})
-
-test('subsessions are the same short lines under cards and under by-state lines; the quiet ones fold', async ($, on) => {
+test('subsessions are the same short lines under cards and under lines; the quiet ones fold', async ($, on) => {
   const saved = INDEX.sessions
   INDEX.sessions = [
     ...saved,
@@ -1080,17 +973,14 @@ test('subsessions are the same short lines under cards and under by-state lines;
     await start($, on)
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-    // Parser edge cases is Parser rewrite's child and waits on you (blocked): a line, in the card's rail
+    // Parser edge cases is Parser rewrite's child and waits on you (blocked): a line under it
     expect(await ui.find({ key: 'sl-Parser rewrite>Parser edge cases' })).toBeDefined()
-    // and it still has its own place in "Still waiting", a different section
-    await ui.press({ key: 'show-waiting' })
-    expect(await ui.find({ key: 't-Parser edge cases' })).toBeDefined()
-    // by state, a quiet line (Docs audit: working) has its subsession under it too
+    // Docs audit's line has its subsession under it too
     expect(await ui.find({ key: 'row-Docs audit' })).toBeDefined()
     expect(await ui.find({ key: 'sl-Docs audit>Docs spelling' })).toBeDefined()
-    // a month-old subsession waits behind "N more", until asked for
+    // a month-old subsession waits until the line is unfolded
     expect(await ui.find({ key: 'sl-Parser rewrite>Parser old try' })).toBeUndefined()
-    await ui.press({ key: 'km-Parser rewrite' })
+    await ui.press({ key: 'u-Parser rewrite' })
     expect(await ui.find({ key: 'sl-Parser rewrite>Parser old try' })).toBeDefined()
     // unfolding a line shows its whole family, every level, as the app's sidebar does
     expect(await ui.find({ key: 'sl-Docs audit>Docs spelling>Spelling old part' })).toBeUndefined()
@@ -1112,7 +1002,6 @@ test('a subsession you are in is marked ◉ on its line under its main session, 
   try {
     await start($, on, {}, 'cli-Parser edge cases')
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-    await ui.press({ key: 'by-project' })
     const line = await ui.find({ key: 'sb-Parser rewrite>Parser edge cases' })
     expect(line).toBeDefined()
     expect(await ui.findAll({ type: 'Text', text: ' ◉' })).toHaveLength(1)
@@ -1132,13 +1021,13 @@ test('the watched session is marked and pinned under Here; elsewhere there is no
   await ui.unmount()
 })
 
-test('desktop: the title, the grey line and the needs line each unfold the card; no layer over the answers', async ($, on) => {
+test('desktop: ▸ unfolds a line into its card; its title, grey line and needs line each fold it back', async ($, on) => {
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   // no blank layer anywhere: the desktop painted it over the answers and Open
   expect(await ui.find({ key: 'tb-Parser rewrite' })).toBeUndefined()
   for (const line of ['t', 'tm', 'tn']) {
-    await ui.press({ key: `${line}-Parser rewrite` })
+    await ui.press({ key: 'u-Parser rewrite' })
     expect(await ui.find({ key: 'd-Parser rewrite' })).toBeDefined()
     await ui.press({ key: `${line}-Parser rewrite` })
     expect(await ui.find({ key: 'd-Parser rewrite' })).toBeUndefined()
@@ -1158,10 +1047,10 @@ test('a review page\'s questions are listed on the card, to answer on the page; 
   await start($, on, store)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  // the count in the accent, its word in the grey of the meta
+  // on the card: the count in the accent, its word in the grey of the meta
+  await ui.press({ key: 'u-Parser rewrite' })
   expect(await ui.find({ type: 'Text', text: /^\? 2$/ })).toBeDefined()
   // unfolding does not open the questions by itself: the tab does
-  await ui.press({ key: 't-Parser rewrite' })
   expect(await ui.find({ type: 'Text', text: /^Q1\. Keep the old API\?/ })).toBeUndefined()
   await ui.press({ key: 'tab-Parser rewrite-questions' })
   expect(await ui.find({ type: 'Text', text: /^Q1\. Keep the old API\?/ })).toBeDefined()
@@ -1187,8 +1076,10 @@ test('one click opens a session; a subsession links up to its parent', async ($,
   // the app takes seconds to switch: the button answers at once
   expect(await ui.find({ type: 'Text', text: /^opening…$/ })).toBeDefined()
 
-  // the subsession's own card (in Still waiting) carries its way up, and one "open ↗": its own
-  await ui.press({ key: 'show-waiting' })
+  // the subsession's own card (reached from Related) carries its way up, and one "open ↗": its own
+  await ui.press({ key: 'u-Parser rewrite' })
+  await ui.press({ key: 'tab-Parser rewrite-related' })
+  await ui.press({ key: 'r-Parser rewrite-Parser edge cases' })
   expect(await ui.find({ key: 'upo-Parser edge cases' })).toBeUndefined()
   ran.length = 0
   await ui.press({ key: 'go-Parser edge cases' })
@@ -1203,7 +1094,7 @@ test('an open card lists related sessions, and one opens on its own', async ($, 
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  await ui.press({ key: 't-Parser rewrite' })
+  await ui.press({ key: 'u-Parser rewrite' })
   // Parser edge cases is its child; Docs audit wrote the same file
   await ui.press({ key: 'tab-Parser rewrite-related' })
   await ui.press({ key: 'r-Parser rewrite-Parser edge cases' })
@@ -1219,11 +1110,12 @@ test('a session that finished since you last looked says unseen, until you open 
   // Parser rewrite finished an hour ago and was never looked at; its subsession asks too
   // said by the border, not a word on the card
   expect(await ui.find({ type: 'Text', text: /unseen · / })).toBeUndefined()
-  // its whole card is outlined green, not only its dot
+  // unfolded, its whole card is outlined green, not only its dot
+  await ui.press({ key: 'u-Parser rewrite' })
   expect((await ui.find({ key: 'c-Parser rewrite' }))?.props?.borderColor).toBe('#5fae6e')
+  // folded back by its title: looked at, the green outline goes
   await ui.press({ key: 't-Parser rewrite' })
-  await ui.press({ key: 't-Parser rewrite' })
-  // opened once: seen, the green outline goes (and stays gone once folded again)
+  await ui.press({ key: 'u-Parser rewrite' })
   expect((await ui.find({ key: 'c-Parser rewrite' }))?.props?.borderColor).not.toBe('#5fae6e')
   await ui.unmount()
 })

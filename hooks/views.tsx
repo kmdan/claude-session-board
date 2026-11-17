@@ -1,20 +1,16 @@
-// The board's sections and its views: board (by state or by project), search
-// results, graph, media, todos, one session in focus.
-import type { Media, Sess } from '../types'
-import { ago, byRecent, dueBucket, isWorking, layoutGraph, matches, projectColor, projectLabel } from './board'
-import type { GraphSpot } from './board'
+// The board's sections and its views: the board (by project, with Waiting for
+// you and Here on top), search results, Tidy up, one session in focus.
+import type { Sess } from '../types'
+import { ago, byRecent, matches, projectColor, projectLabel } from './board'
 import type { Cards } from './cards'
-import { addTodo, archiveMany, openSession } from './actions'
-import { ACCENT, BORDER, chipOf, DOT, HERE, READY, SEEN, short, stateWord, WORKING } from './draw'
-import type { Drawing, TodoRow } from './draw'
-import { background, INBOX } from './state'
+import { archiveMany, hideMany, openSession } from './actions'
+import { ACCENT, BORDER, chipOf, DOT, READY, SEEN, short, stateWord } from './draw'
+import type { Drawing } from './draw'
+import { background } from './state'
 import type { $T } from './state'
 
 // how many cards a section shows before "Show more"
 const SHOWN = 5
-
-// the graph view's layout, worked out once per index, project chip and pane width
-let graphMemo: { key: string; ids: string[]; spots: GraphSpot[] } = { key: '', ids: [], spots: [] }
 
 // "Show 9 more" when that is all of them, "Show 10 more of 23" when more stay folded
 const moreWord = (total: number, limit: number) => {
@@ -33,12 +29,12 @@ const CARD_ROWS = 5
 type Fold = { key: string; title: string; list: Sess[]; asRows?: boolean }
 
 export function makeViews($: $T, d: Drawing, cards: Cards) {
-  const { Box, Text, Button, Input, Link } = d.table
+  const { Box, Text, Button } = d.table
   const {
-    bodyColumns, bodyRows, ix, ui, notes, fullText, now, setUi, all, byId, byCli, kidsOf, here, find, st,
-    isUnseen, waitsForYou, inChip, inProject, listed, groups, topLevel, allTodos,
+    bodyRows, ix, ui, fullText, now, setUi, all, byId, byCli, kidsOf, here, st,
+    inChip, inProject, listed, groups, topLevel,
   } = d
-  const { mediaRow, todoRow, card, row, subLines } = cards
+  const { card, row, subLines } = cards
 
   // A section: its heading (a coloured mark, the name, the count and a quiet
   // note), then cards, or lines in one soft card. `byTime` lists strictly newest
@@ -110,68 +106,6 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
           </Box>
         )}
         {present.filter(f => ui.shown[f.key]).map(f => section(f.key, f.title, f.list, undefined, false, f.asRows ?? true, { foldable: true }))}
-      </Box>
-    )
-  }
-
-  // The graph: the last two weeks' open sessions as dots, related ones close
-  // together (the same evidence as a card's Related tab: same thread, same
-  // files, same rare words). A dot's colour is its project, or its state where
-  // that matters (brown working, green asks you, as the board's dots;
-  // drawn outside the button, which colours its own text). A click
-  // opens the session's card; hovering shows its title in full.
-  const graphView = () => {
-    const cols = Math.max(30, bodyColumns ?? 60) - 2
-    const pool = inProject
-      .filter(s => !s.archived && !['done', 'parked'].includes(st(s)) && now - s.last < 14 * 86_400_000)
-      .sort(byRecent).slice(0, 60)
-    const rows = Math.min(32, Math.max(12, Math.round(pool.length * 0.6)))
-    const key = `${ix.at}|${ui.project}|${cols}|${pool.map(s => s.id).join(',')}`
-    if (graphMemo.key !== key) {
-      const at = new Map(pool.map((s, i) => [s.id, i]))
-      const edges: [number, number, number][] = []
-      pool.forEach((s, i) => {
-        for (const r of find(s, 8)) {
-          const j = at.get(r.s.id)
-          if (j !== undefined && j > i) edges.push([i, j, r.score])
-        }
-      })
-      graphMemo = { key, ids: pool.map(s => s.id), spots: layoutGraph(pool.map(s => s.title), edges, cols, rows) }
-    }
-    if (pool.length === 0) return <Text dimColor>No open sessions in the last two weeks{ui.project ? ' in this project' : ''}.</Text>
-    return (
-      <Box flexDirection="column">
-        <Text dimColor wrap="wrap">{pool.length} open sessions of the last two weeks. Close together = related: the same thread, files or words. Click one to open its card.</Text>
-        <Box key="graph" position="relative" height={rows} width={cols} marginTop={1}>
-          {graphMemo.spots.map(sp => {
-            const s = byId.get(graphMemo.ids[sp.i])
-            if (!s) return null
-            const working = isWorking(s, now)
-            const quiet = !working && !['need', 'waiting'].includes(st(s))
-            const nameColor = here && s.id === here.id ? HERE : working ? WORKING : waitsForYou(s) ? READY : undefined
-            return (
-              <Box key={`gn-${s.id}`} position="absolute" top={sp.y} left={sp.x} flexDirection="row">
-                {/* the dot beside the button: the desktop draws a button's text in its own colour */}
-                <Text color={nameColor ?? projectColor(s.project)}>{nameColor ? '◉' : '●'}</Text>
-                <Button key={`g-${s.id}`} plain
-                  onPress={() => setUi(u => ({ ...u, view: 'focus', focus: s.id, open: '', tab: '', from: 'graph' }))}>
-                  <Text color={nameColor} dimColor={!nameColor && quiet} bold={isUnseen(s)}> {sp.label || '·'}</Text>
-                </Button>
-                <Box position="absolute" top={1} left={sp.x > cols - 34 ? -30 : 0} display="none" hover={{ display: 'flex' }}
-                  flexDirection="column" borderStyle="round" borderColor={BORDER} backgroundColor="#1e1e22" paddingX={1} width={32}>
-                  <Text bold wrap="wrap">{s.title}</Text>
-                  <Text dimColor wrap="truncate-end">{projectLabel(s.project)} · {working ? 'working' : stateWord[st(s)]} · {ago(now - s.last)}</Text>
-                </Box>
-              </Box>
-            )
-          })}
-        </Box>
-        <Box flexDirection="row" flexWrap="wrap" gap={2} marginTop={1}>
-          <Text dimColor>● colour = project</Text>
-          <Text color={WORKING}>◉ working</Text>
-          <Text color={READY}>◉ asks you</Text>
-          <Text color={HERE}>◉ here</Text>
-        </Box>
       </Box>
     )
   }
@@ -275,119 +209,35 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
             {card(hereTop, true, 0, `@${hereTop.id}`)}
           </Box>
         )}
-        {/* two orders of the same sessions: by what they need of you, or by project */}
-        {/* drawn as the view buttons are: a plain button's text styling is not shown on the desktop */}
-        <Box flexDirection="row" gap={1} marginBottom={1} alignItems="center">
-          <Text dimColor>Order</Text>
-          <Button key="by-state" variant={ui.boardBy === 'state' ? 'primary' : 'secondary'} label="By state"
-            onPress={() => setUi(u => ({ ...u, boardBy: 'state' }))} />
-          <Button key="by-project" variant={ui.boardBy !== 'state' ? 'primary' : 'secondary'} label="By project"
-            onPress={() => setUi(u => ({ ...u, boardBy: 'project' }))} />
-        </Box>
-        {ui.boardBy !== 'state' ? byProject() : (
-          <Box flexDirection="column">
-            {/* cards where you act; one quiet line each for the rest */}
-            {section('need', 'Needs you', groups.need, ACCENT)}
-            {foldRow([{ key: 'waiting', title: 'Still waiting on you, 1-7 days', list: groups.waiting, asRows: false }])}
-            {section('working', 'Working', groups.working, WORKING, false, true)}
-            {section('today', 'Today', groups.today, undefined, false, true, { note: 'not touched by you yet' })}
-            {section('week', 'Earlier this week', groups.week, undefined, false, true)}
-            {foldRow([
-              { key: 'good', title: 'Good enough', list: groups.good, asRows: false },
-              { key: 'earlier', title: 'Earlier this month', list: groups.earlier },
-              { key: 'done', title: 'Done', list: groups.done },
-              { key: 'parked', title: 'Parking lot', list: groups.parked },
-            ])}
-          </Box>
-        )}
+        {byProject()}
       </Box>
     )
   }
 
-  const mediaView = () => {
-    type Row = { s: Sess; m?: Media; a?: { url: string; title: string; t: number }; t: number }
-    const rows: Row[] = []
-    for (const s of inProject) {
-      for (const m of s.media) if (!ui.query || matches(s, ui.query) || m.p.toLowerCase().includes(ui.query.toLowerCase())) rows.push({ s, m, t: m.t })
-      for (const a of s.artifacts) rows.push({ s, a, t: a.t })
-    }
-    rows.sort((x, y) => y.t - x.t)
-    const limit = ui.limits.media ?? 25
-    return (
-      <Box flexDirection="column">
-        <Text bold>Made by your sessions, newest first ({rows.length})</Text>
-        {rows.slice(0, limit).map(r => (r.m
-          ? mediaRow(r.s, r.m, true)
-          : <Link key={`ma-${r.s.id}-${r.a!.url}`} href={r.a!.url} label={`◧ ${r.a!.title} · ${ago(now - r.t)} · ${r.s.title}`} />))}
-        {rows.length > limit && (
-          <Button key="more-media" plain onPress={() => setUi(u => ({ ...u, limits: { ...u.limits, media: limit + 25 } }))}>
-            <Text dimColor>show 25 more of {rows.length - limit}</Text>
-          </Button>
-        )}
-      </Box>
-    )
-  }
-
-  // Every open todo, the Todoist way: Overdue / Today / Upcoming / No date,
-  // label chips to filter, the Inbox's quick add on top. Done ones fold away.
-  const todosView = () => {
-    const labelsInUse = [...new Set(allTodos.filter(r => !r.n.done).flatMap(r => r.n.labels ?? []))].sort()
-    const shown = allTodos.filter(r =>
-      (!ui.label || (r.n.labels ?? []).includes(ui.label))
-      && (!ui.project || r.owner === INBOX || inChip(r.s)))
-    const open = shown.filter(r => !r.n.done)
-    const done = shown.filter(r => r.n.done)
-    const byDue = (a: TodoRow, b: TodoRow) => (a.n.due ?? '9999').localeCompare(b.n.due ?? '9999') || a.n.at - b.n.at
-    const group = (key: string, title: string, rows: TodoRow[], color?: string) => rows.length === 0 ? null : (
-      <Box key={`tg-${key}`} flexDirection="column" marginBottom={1}>
-        <Text bold color={color}>{title} ({rows.length})</Text>
-        {rows.sort(byDue).map(r => todoRow(r.owner, r.n, r.s, true))}
-      </Box>
-    )
-    return (
-      <Box flexDirection="column">
-        <Input
-          key="todo-add"
-          placeholder="Inbox: add a todo…  @label  today / fri / 3d"
-          submitLabel="Add"
-          onSubmit={v => background($, addTodo($, INBOX, v))}
-        />
-        {labelsInUse.length > 0 && (
-          <Box flexDirection="row" flexWrap="wrap" gap={1} marginY={1}>
-            <Button key="l-all" variant={ui.label === '' ? 'primary' : 'secondary'} label="All labels"
-              onPress={() => setUi(u => ({ ...u, label: '' }))} />
-            {labelsInUse.map(l => (
-              <Button key={`l-${l}`} variant={ui.label === l ? 'primary' : 'secondary'} label={`@${l}`}
-                onPress={() => setUi(u => ({ ...u, label: u.label === l ? '' : l }))} />
-            ))}
-          </Box>
-        )}
-        {open.length === 0 && <Text dimColor>No open todos{ui.label ? ` with @${ui.label}` : ''}. Add one above, or on any session's card.</Text>}
-        {group('overdue', 'Overdue', open.filter(r => dueBucket(r.n.due, now) === 'overdue'), ACCENT)}
-        {group('today', 'Today', open.filter(r => dueBucket(r.n.due, now) === 'today'), ACCENT)}
-        {group('upcoming', 'Upcoming', open.filter(r => dueBucket(r.n.due, now) === 'upcoming'))}
-        {group('none', 'No date', open.filter(r => dueBucket(r.n.due, now) === 'none'))}
-        {done.length > 0 && (ui.shown.todosDone
-          ? group('done', 'Done', done)
-          : (
-            <Button key="show-todos-done" plain onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, todosDone: true } }))}>
-              <Text dimColor>Done ({done.length}) · show</Text>
-            </Button>
-          ))}
-      </Box>
-    )
-  }
-
-  // Tidy up: sessions that could be archived, ticked unless they sit in their own
-  // worktree (archiving removes it). One button archives the ticked ones.
+  // Tidy up: sessions quiet a long while, all ticked. Hide takes them off the
+  // board at once, here only (no approvals; Unhide brings them back; search still
+  // finds them). Archive asks the app, which may want each one approved and
+  // removes a worktree: sessions in their own worktree are left out of it.
   const tidyView = () => {
-    const { tidy, famLast, inWorktree, isTicked, marks } = d
+    const { tidy, famLast, inWorktree, isTicked, marks, hiddenCount } = d
     const list = [...tidy].sort((a, b) => famLast(a) - famLast(b))
     const ticked = list.filter(isTicked)
+    const archivable = ticked.filter(s => !inWorktree(s))
     const limit = ui.limits.tidy ?? Math.max(10, bodyRows - TOP_ROWS - 6)
     const pick = (ids: string[], on: boolean) =>
       setUi(u => ({ ...u, tidyPick: { ...u.tidyPick, ...Object.fromEntries(ids.map(id => [id, on])) } }))
-    if (list.length === 0) return <Text dimColor>Nothing to tidy: no session has been quiet a month{ui.project ? ' in this project' : ''}.</Text>
+    const unhide = hiddenCount > 0 && (
+      <Button key="tidy-unhide" variant="secondary" label={`Unhide all ${hiddenCount}`}
+        onPress={() => background($, hideMany($, d.hiddenIds, false))} />
+    )
+    if (list.length === 0) {
+      return (
+        <Box flexDirection="column" gap={1}>
+          <Text dimColor>Nothing to tidy: no session has been quiet a month{ui.project ? ' in this project' : ''}.</Text>
+          {unhide}
+        </Box>
+      )
+    }
     return (
       <Box flexDirection="column">
         <Box flexDirection="row" gap={1} alignItems="center">
@@ -398,12 +248,15 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
           </Text>
         </Box>
         <Text dimColor wrap="wrap">
-          Archived sessions leave the board and the app's list; the app's Archived list brings one back. The app may
-          ask you to approve each. Sessions in a worktree start unticked: archiving removes the worktree.
+          Hide takes them off this board only, at once, no approvals: Unhide brings them back and search still finds
+          them. Archive asks the app instead (it may want each approved), and leaves out sessions in a worktree.
         </Text>
         <Box flexDirection="row" flexWrap="wrap" gap={1} marginY={1}>
-          <Button key="tidy-archive" variant="primary" label={`Archive ${ticked.length} ticked`}
-            onPress={() => { if (ticked.length) background($, archiveMany($, ticked.map(s => s.id))) }} />
+          <Button key="tidy-hide" variant="primary" label={`Hide ${ticked.length} from the board`}
+            onPress={() => { if (ticked.length) background($, hideMany($, ticked.map(s => s.id), true)) }} />
+          <Button key="tidy-archive" variant="secondary" label={`Archive ${archivable.length} in the app`}
+            onPress={() => { if (archivable.length) background($, archiveMany($, archivable.map(s => s.id))) }} />
+          {unhide}
           <Button key="tidy-all" variant="secondary" label="Tick all" onPress={() => pick(list.map(s => s.id), true)} />
           <Button key="tidy-none" variant="secondary" label="Untick all" onPress={() => pick(list.map(s => s.id), false)} />
           <Button key="tidy-back" variant="secondary" label="Back to the board" onPress={() => setUi(u => ({ ...u, view: 'board' }))} />
@@ -441,8 +294,8 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
     if (!s) return <Text dimColor>That session is not in the index.</Text>
     return (
       <Box flexDirection="column">
-        <Button key="back" plain onPress={() => setUi(u => ({ ...u, view: u.from === 'graph' ? 'graph' : 'board', focus: '', from: undefined }))}>
-          <Text dimColor>← back to the {ui.from === 'graph' ? 'graph' : 'board'}</Text>
+        <Button key="back" plain onPress={() => setUi(u => ({ ...u, view: 'board', focus: '', from: undefined }))}>
+          <Text dimColor>← back to the board</Text>
         </Button>
         {card(s, true)}
       </Box>
@@ -497,10 +350,8 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
   }
 
   // which view the tabs and the search ask for
-  return () => (ui.view === 'media' ? mediaView()
-    : ui.view === 'graph' ? graphView()
-    : ui.view === 'todos' ? todosView()
-    : ui.view === 'focus' ? focusView()
+  // (Todos, Media, Graph and the by-state order were taken out: the usage log saw them unused)
+  return () => (ui.view === 'focus' ? focusView()
     : ui.view === 'tidy' ? tidyView()
     : ui.query !== '' ? foundView()
     : boardView())
