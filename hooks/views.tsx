@@ -1,12 +1,13 @@
 // The board's sections and its views: the board (by project, with Waiting for
 // you and Here on top), search results, Tidy up, one session in focus.
 import type { Sess } from '../types'
-import { ago, byRecent, matches, projectColor, projectLabel } from './board'
+import { ago, projectColor, projectLabel } from './board'
 import type { Cards } from './cards'
 import { archiveMany, hideMany, openSession } from './actions'
 import { ACCENT, BORDER, chipOf, DOT, READY, SEEN, short, stateWord } from './draw'
 import type { Drawing } from './draw'
-import { background, setPref } from './state'
+import { background, logUse, setPref } from './state'
+import { searchText } from './indexing'
 import type { $T } from './state'
 
 // how many cards a section shows before "Show more"
@@ -320,7 +321,7 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
   // What the search found: titles, files and commits at once; what was said in
   // conversations once the search was run for this query (Enter).
   const foundView = () => {
-    const found = inProject.filter(s => matches(s, ui.query)).sort(byRecent)
+    const found = d.rankFound(ui.query)
     const foundIds = new Set(found.map(s => s.id))
     const said = fullText.query === ui.query.trim()
       // never name a variable `h` in this file: JSX compiles to calls of the global `h`
@@ -329,7 +330,15 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
     const saidView = () => {
       if (ui.query.trim().length < 3) return null
       if (fullText.query !== ui.query.trim()) {
-        return <Text dimColor>Press Enter to search what was said in every conversation too.</Text>
+        return (
+          <Box marginTop={1}>
+            <Button key="said-search" variant="secondary" label="Also search what was said"
+              onPress={() => {
+                logUse('search-said', { q: ui.query.slice(0, 60) })
+                background($, searchText($, ui.query))
+              }} />
+          </Box>
+        )
       }
       if (fullText.isLoading) return <Text dimColor>Searching conversations…</Text>
       return (
@@ -355,10 +364,29 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
         </Box>
       )
     }
+    // one line each, best match first, as many as the pane holds; Enter opens the first
+    const limit = ui.limits.found ?? Math.max(8, bodyRows - TOP_ROWS)
     return (
       <Box flexDirection="column">
-        {section('found', `Found for "${ui.query}"`, found, undefined, true, false, { fill: true })}
-        {found.length === 0 && <Text dimColor>No title, file or commit matches, archived and parked sessions included.</Text>}
+        <Box flexDirection="row" gap={1} alignItems="center">
+          <Text color={SEEN}>▎</Text>
+          <Text>
+            <Text bold>Found for "{ui.query}"</Text>
+            <Text dimColor> {found.length}{found.length ? ' · Enter opens the first' : ''}</Text>
+          </Text>
+        </Box>
+        {found.length > 0 && (
+          <Box flexDirection="column" borderStyle="round" borderColor={BORDER} paddingX={1}>
+            {found.slice(0, limit).map(s => row(s, true))}
+            {found.length > limit && (
+              <Box>
+                <Button key="more-found" variant="secondary" label={moreWord(found.length, limit)}
+                  onPress={() => setUi(u => ({ ...u, limits: { ...u.limits, found: limit + 10 } }))} />
+              </Box>
+            )}
+          </Box>
+        )}
+        {found.length === 0 && <Text dimColor>No title, file or commit matches, archived and hidden sessions included.</Text>}
         {saidView()}
       </Box>
     )

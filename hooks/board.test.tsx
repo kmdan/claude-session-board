@@ -410,17 +410,33 @@ test('the green dot means it asks you, for two days: a finished session or an ol
   }
 })
 
-test('search results fill a tall pane instead of stopping at five', async ($, on) => {
+test('the search is a quick switcher: a line per match, the best title match first; Enter opens it', async ($, on) => {
   const saved = INDEX.sessions
-  INDEX.sessions = Array.from({ length: 30 }, (_, i) => sess(`Import ${i}`, { last: NOW - (i + 1) * H })) as any
+  INDEX.sessions = [
+    ...Array.from({ length: 30 }, (_, i) => sess(`Old import ${i}`, { last: NOW - (i + 1) * H })),
+    sess('Nuke render farm', { last: NOW - 50 * H }),
+    sess('Render settings', { last: NOW - 60 * H }),
+    sess('Docs', { last: NOW - H, files: ['C:\\r\\render_notes.md'], fileCount: 1 }),
+  ] as any
+  const clock = mock.clock(on, { now: Date.now() })
   for (const k of Object.keys(disk)) delete disk[k]
   try {
-    await start($, on)
+    await start($, on, undefined, undefined, false)
     const tall = await $.ui.mount({ ...PANE, surface: 'terminal', props: { ...PANE.props, scroll: { offset: 0, bodyRows: 72 } } } as any)
-    await tall.input({ key: 'q', text: 'import' })
-    // 72 rows less the top 12, five rows a card: twelve cards before "Show more"
-    expect(await tall.find({ key: 'c-Import 11' })).toBeDefined()
-    expect(await tall.find({ key: 'c-Import 12' })).toBeUndefined()
+    await tall.input({ key: 'q', text: 'import', kind: 'change' })
+    await clock.advance(200)
+    // lines, not cards, as many as the tall pane holds
+    expect(await tall.find({ key: 'row-Old import 29' })).toBeDefined()
+    expect(await tall.find({ key: 'c-Old import 0' })).toBeUndefined()
+    // ranked: the title starting with it first, then a word in it, then only a file matching
+    await tall.input({ key: 'q', text: 'render', kind: 'change' })
+    await clock.advance(200)
+    const order = (await tall.findAll({ type: 'Button' })).map((b: any) => b.key).filter((k: string) => /^t-/.test(k))
+    expect(order.slice(0, 3)).toEqual(['t-Render settings', 't-Nuke render farm', 't-Docs'])
+    // Enter opens the first, newest-moved or not
+    ran.length = 0
+    await tall.input({ key: 'q', text: 'render' })
+    expect(ran.some(a => a.join(' ').endsWith('epitaxy/Render settings'))).toBe(true)
     await tall.unmount()
   } finally {
     INDEX.sessions = saved
@@ -452,9 +468,10 @@ test('what you do on the board is logged locally, one line each, for later sugge
 
 test('Tidy up hides what has been quiet a month from the board, at once and undoably; search still finds it', async ($, on) => {
   const store: Record<string, unknown> = {}
+  const clock = mock.clock(on, { now: Date.now() })
   for (const k of Object.keys(disk)) delete disk[k]
   archived.length = 0
-  await start($, on, store)
+  await start($, on, store, undefined, false)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'show-parked' })
   expect(await ui.find({ key: 'row-Old probe' })).toBeDefined()
@@ -467,9 +484,11 @@ test('Tidy up hides what has been quiet a month from the board, at once and undo
   expect(await ui.find({ key: 'td-Old probe' })).toBeUndefined()
   await ui.press({ key: 'v-board' })
   expect(await ui.find({ key: 'row-Old probe' })).toBeUndefined()
-  // search still finds it, and its card brings it back
-  await ui.input({ key: 'q', text: 'Old probe' })
-  await ui.press({ key: 't-Old probe' })
+  // search still finds it, says so, and its card brings it back
+  await ui.input({ key: 'q', text: 'Old probe', kind: 'change' })
+  await clock.advance(200)
+  expect(await ui.find({ type: 'Text', text: 'hidden' })).toBeDefined()
+  await ui.press({ key: 'u-Old probe' })
   await ui.press({ key: 'uh-Old probe' })
   expect(Object.keys(store.hidden as object)).toEqual([])
   await ui.unmount()
@@ -755,9 +774,10 @@ test('Enter searches what was said in conversations, and a hit opens its card', 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.input({ key: 'q', text: 'timeout', kind: 'change' })
   // the board waits for a pause in typing before it redraws
-  expect(await ui.find({ type: 'Text', text: /Press Enter to search what was said/ })).toBeUndefined()
+  expect(await ui.find({ key: 'said-search' })).toBeUndefined()
   await clock.advance(200)
-  expect(await ui.find({ type: 'Text', text: /Press Enter to search what was said/ })).toBeDefined()
+  expect(await ui.find({ key: 'said-search' })).toBeDefined()
+  // no title matches it: Enter searches what was said
   searched.length = 0
   await ui.input({ key: 'q', text: 'timeout' })
   expect(searched).toEqual(['timeout'])
@@ -967,14 +987,18 @@ test('marking a session good enough moves it, and the files overlap shows', asyn
 })
 
 test('search finds an archived session by a file it wrote and by its commit', async ($, on) => {
-  await start($, on)
+  const clock = mock.clock(on, { now: Date.now() })
+  await start($, on, undefined, undefined, false)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  await ui.input({ key: 'q', text: 'csvexporter' })
+  await ui.input({ key: 'q', text: 'csvexporter', kind: 'change' })
+  await clock.advance(200)
   // the label in capitals, the query in its own case
   expect(await ui.find({ type: 'Text', text: /^Found for "csvexporter" 1(?!\d)/ })).toBeDefined()
-  await ui.input({ key: 'q', text: 'a1b2c3d' })
-  expect(await ui.find({ type: 'Text', text: /\(1\)/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'archived' })).toBeDefined()
+  await ui.input({ key: 'q', text: 'a1b2c3d', kind: 'change' })
+  await clock.advance(200)
+  expect(await ui.find({ type: 'Text', text: /^Found for "a1b2c3d" 1(?!\d)/ })).toBeDefined()
   // opening the found session leaves for it: the board you come back to has no search on
   await ui.press({ key: 'go-Archived exporter' })
   expect(await ui.find({ type: 'Text', text: /^Found for/ })).toBeUndefined()

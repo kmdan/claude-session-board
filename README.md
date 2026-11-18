@@ -48,8 +48,10 @@ lot of sessions at once and lose track of them, ADHD brains included.
   review page with question blocks (`<div class="q" data-q="Q1" data-to="me">`
   and an `<h3>`), the card shows **? N questions** and a **Questions** tab
   listing them; answer on the page, and **✓ mark answered** closes it.
-- **Search** titles, files, media, commits; press **Enter** to also search
-  **what was said** in every conversation.
+- **Find a session** as you type: a line per match, the best title match first
+  (titles that start with it, then a word in them, then files, commits and
+  status). **Enter** opens the first; with no match it searches **what was
+  said** in every conversation, which **Also search what was said** does any time.
 
 ## Privacy
 

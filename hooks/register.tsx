@@ -146,7 +146,7 @@ export const register: Register = on => {
             <Input
               // a new key draws a fresh, empty box: how ✕ clears a field the board does not bind
               key={ui.cleared ? `q${ui.cleared}` : 'q'}
-              placeholder="Search titles, files, media, commits… Enter: also what was said"
+              placeholder="Find a session… Enter opens the best match"
               // not bound to ui.query: the field keeps what is typed itself, and the
               // board redraws once typing pauses (150 ms), not on every letter. An
               // emptied box clears at once: it must never wait on the timer (in the
@@ -161,10 +161,16 @@ export const register: Register = on => {
                   if (live.typedQuery === v) setUi(u => (u.query === v ? u : { ...u, query: v }))
                 })
               }}
+              // Enter: the best match opens (a quick switcher); with none, what was said is searched
               onSubmit={v => {
                 live.typedQuery = v
+                const top = d.rankFound(v)[0]
+                logUse('search', { q: v.slice(0, 60), opened: !!top })
+                if (top) {
+                  background($, openSession($, top.id, 'search-enter'))
+                  return
+                }
                 setUi(u => ({ ...u, query: v, view: 'board' }))
-                logUse('search-said', { q: v.slice(0, 60) })
                 background($, searchText($, v))
               }}
             />

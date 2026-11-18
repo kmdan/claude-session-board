@@ -1,7 +1,7 @@
 // One drawing's facts: the colours, the values read from state, and what is
 // worked out from them, shared by the cards, sections and views.
 import type { QPage, Sess, Ui } from '../types'
-import { byRecent, chatAnswers, isAsking, isOpenPage, isWorking, relatedFinder, stateOf } from './board'
+import { byRecent, chatAnswers, isAsking, isOpenPage, isWorking, matches, relatedFinder, stateOf } from './board'
 import type { Related, State } from './board'
 import { trailOf } from './actions'
 import { refreshHereInfo } from './indexing'
@@ -274,6 +274,26 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
   // all ticked to start: hiding is harmless (Archive leaves worktree sessions out itself)
   const isTicked = (s: Sess) => ui.tidyPick?.[s.id] ?? true
 
+  // The quick switcher: what a search finds, the best title match first (the
+  // title starts with what you typed, then a word in it does, then it holds it
+  // anywhere, then only a file, commit or status matched), newest first within
+  // each; archived and hidden ones last. Enter opens the first.
+  const rankFound = (query: string) => {
+    const q = query.trim().toLowerCase()
+    if (!q) return []
+    const rank = (s: Sess) => {
+      const title = s.title.toLowerCase()
+      const k = title.startsWith(q) ? 0
+        : title.split(/[^a-z0-9]+/).some(w => w.startsWith(q)) ? 1
+        : title.includes(q) ? 2 : 3
+      return k + (s.archived ? 10 : 0)
+    }
+    return inProject.filter(s => matches(s, q))
+      .map(s => ({ s, k: rank(s) }))
+      .sort((a, b) => a.k - b.k || b.s.last - a.s.last)
+      .map(x => x.s)
+  }
+
   // Waiting for you: what asks you (the app says so, or a question page is open;
   // two days, as the green dot) and what finished since you last looked (a week).
   // Newest first: you mostly answer what just moved. Never the session you are
@@ -290,7 +310,7 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
     all, byId, byCli, kidsOf, here, hereChain, find, chat, st,
     finishedForYou, isUnseen, waitsForYou, isFresh, hasReported, asksYou, isPageOpen, openPages, borderOf,
     inChip, inProject, listed, groups, topLevel, chips, recentTrail, trail, backTo, hereInfo,
-    tidy, famLast, inWorktree, isTicked, waiting, next, looked, hiddenIds, hiddenCount: hiddenIds.length,
+    tidy, famLast, inWorktree, isTicked, waiting, next, looked, hiddenIds, hiddenCount: hiddenIds.length, rankFound,
   }
 }
 

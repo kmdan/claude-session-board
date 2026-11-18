@@ -91,7 +91,7 @@ const UI_KEYS = ['view', 'boardBy', 'project', 'open', 'tab', 'focus', 'label'] 
 
 function logUiChange(a: Ui, b: Ui): void {
   for (const k of UI_KEYS) if (a[k] !== b[k]) logUse('ui', { key: k, from: a[k] ?? '', to: b[k] ?? '' })
-  if (a.query !== b.query) logUse('search', { q: b.query.slice(0, 60) })
+  // what is typed is not logged letter by letter: a search is logged when it ends (Enter, an open)
   for (const k of Object.keys({ ...a.shown, ...b.shown })) {
     if (!!a.shown[k] !== !!b.shown[k]) logUse('fold', { key: k, shown: !!b.shown[k] })
   }

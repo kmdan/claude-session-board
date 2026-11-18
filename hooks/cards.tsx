@@ -4,7 +4,7 @@ import { ago, baseName, isWorking, overlaps, projectColor, projectLabel } from '
 import { hideMany, mark, markAnswered, markSeen, openFile, openSession, reveal } from './actions'
 import { ACCENT, chipOf, DOT, HERE, PULSE_WORKING, READY, short, stateWord, WORKING } from './draw'
 import type { Drawing } from './draw'
-import { background, live } from './state'
+import { background, live, logUse } from './state'
 import type { $T } from './state'
 
 const KIND_MARK: Record<Media['k'], string> = { movie: '▶', image: '▣', page: '◧', file: '·' }
@@ -372,13 +372,19 @@ export function makeCards($: $T, d: Drawing) {
         {here && s.id === here.id && <Text color={HERE}>◉</Text>}
         {/* in a narrow pane the title gives way (cut with "…"); the right side never wraps */}
         <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
-          <Button key={`t-${s.id}`} plain onPress={() => background($, openSession($, s.id, 'line-title'))}>
+          <Button key={`t-${s.id}`} plain onPress={() => {
+            // a search that ends in an open is the search worth logging
+            if (ui.query) logUse('search', { q: ui.query.slice(0, 60), opened: true })
+            background($, openSession($, s.id, ui.query ? 'search-line' : 'line-title'))
+          }}>
             <Text bold={isUnseen(s)} wrap="truncate-end">{s.title}</Text>
             {kids > 0 && <Text dimColor>  +{kids}{reports ? ` ↩${reports}` : ''}</Text>}
           </Button>
         </Box>
         <Box flexDirection="row" gap={1} flexShrink={0} alignItems="center">
           {/* a one-off scratch folder shows as its chip: the dated name wrapped the line */}
+          {/* found by search though off the board */}
+          {s.archived && <Text dimColor>{s.hidden ? 'hidden' : 'archived'}</Text>}
           {withTag && <Text color={projectColor(s.project)} wrap="truncate-end">{short(projectLabel(chipOf(s.project)), narrow ? 10 : 18)}</Text>}
           <Text dimColor>{ago(now - s.last)}</Text>
           {/* quick marks without unfolding: done, park (undo: the card's Auto button) */}
