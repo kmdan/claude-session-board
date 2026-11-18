@@ -362,6 +362,9 @@ test('under Here only your session shows, inside its main session when it is a s
   try {
     await start($, on, {}, 'cli-You')
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    // Here is one slim line until its ▸ unfolds it
+    expect(await ui.find({ key: 't-@Main' })).toBeUndefined()
+    await ui.press({ key: 'here-open' })
     expect(await ui.find({ key: 't-@Main' })).toBeDefined()
     expect(await ui.find({ key: 't-@Main>You' })).toBeDefined()
     // your own subsessions as on any card: the live one a line, the old one behind "1 more"
@@ -401,8 +404,11 @@ test('the green dot means it asks you, for two days: a finished session or an ol
     // four (two ask you, two finished and not looked at yet), so six green dots in all
     const dots = await ui.findAll({ type: 'Text', text: '●' })
     expect(dots.filter((t: any) => t.text === '●' && t.props?.color === '#5fae6e')).toHaveLength(6)
-    expect((await ui.findAll({ type: 'Text', text: 'asks you' })).filter((t: any) => t.text === 'asks you')).toHaveLength(2)
-    expect((await ui.findAll({ type: 'Text', text: 'new' })).filter((t: any) => t.text === 'new')).toHaveLength(2)
+    // the strip says why each is there: it asks, its open questions, or that it finished
+    const said = async (word: string) => (await ui.findAll({ type: 'Text', text: word })).filter((t: any) => t.text === word).length
+    expect(await said('asks you')).toBe(1)
+    expect(await said('1 question')).toBe(1)
+    expect(await said('finished')).toBe(2)
     await ui.unmount()
   } finally {
     INDEX.sessions = saved
@@ -638,7 +644,7 @@ test('Waiting for you lists what asks you or finished unseen, newest first; Next
   await ui.press({ key: 'next' })
   expect(ran.some(a => a.join(' ').endsWith('epitaxy/Parser rewrite'))).toBe(true)
   // looked at now: Next moves on to the one you have not seen; Parser rewrite stays listed, it still asks
-  expect((await ui.find({ key: 'next' }) as any)?.props?.label).toMatch(/^Next ↗ Parser edge cases/)
+  expect((await ui.find({ key: 'next' }) as any)?.props?.label).toMatch(/^Next ↗ Parser edge/)
   expect(await ui.find({ key: 'wt-Parser rewrite' })).toBeDefined()
   // ▾ folds the strip to its heading; Next stays
   await ui.press({ key: 'waiting-fold' })
@@ -660,8 +666,10 @@ test('pasted text is saved as an .md file and its path goes into the prompt box,
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const log = 'C:\\build> make all\nerror: missing ``` fence\nline three'
-  // the box opens from its button, so the top stays short
+  // the box opens from Paste log under ⋯, so the top stays short
   expect(await ui.find({ key: 'paste-0' })).toBeUndefined()
+  expect(await ui.find({ key: 'paste-open' })).toBeUndefined()
+  await ui.press({ key: 'more' })
   await ui.press({ key: 'paste-open' })
   await ui.input({ key: 'paste-0', text: log })
   await new Promise(done => setTimeout(done, 50))
@@ -768,36 +776,44 @@ test('a board opened right after another draws the shared snapshot and does not 
   await ui.unmount()
 })
 
-test('Enter searches what was said in conversations, and a hit opens its card', async ($, on) => {
+test('a pause in typing also searches what was said in every conversation; Enter opens its best hit', async ($, on) => {
   const clock = mock.clock(on, { now: Date.now() })
   await start($, on, undefined, undefined, false)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  await ui.input({ key: 'q', text: 'timeout', kind: 'change' })
-  // the board waits for a pause in typing before it redraws
-  expect(await ui.find({ key: 'said-search' })).toBeUndefined()
-  await clock.advance(200)
-  expect(await ui.find({ key: 'said-search' })).toBeDefined()
-  // no title matches it: Enter searches what was said
   searched.length = 0
-  await ui.input({ key: 'q', text: 'timeout' })
+  await ui.input({ key: 'q', text: 'timeout', kind: 'change' })
+  // the board waits for a pause in typing before it redraws, and a longer one before it searches what was said
+  expect(await ui.find({ type: 'Text', text: /^Found for/ })).toBeUndefined()
+  await clock.advance(200)
+  expect(await ui.find({ type: 'Text', text: /Searching what was said/ })).toBeDefined()
+  expect(searched).toEqual([])
+  await clock.advance(600)
   expect(searched).toEqual(['timeout'])
   expect(await ui.find({ type: 'Text', text: /Said in conversations \(1\)/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /flaky timeout came back/ })).toBeDefined()
+  // no title matches it: Enter opens the session where it was said
+  ran.length = 0
+  await ui.input({ key: 'q', text: 'timeout' })
+  expect(ran.some(a => a.join(' ').endsWith('epitaxy/Old probe'))).toBe(true)
+  // a hit's own line unfolds its card
+  // opening it left the search: the box was drawn anew, empty (its key counts the clears)
+  await ui.input({ key: 'q1', text: 'timeout', kind: 'change' })
+  await clock.advance(800)
   await ui.press({ key: 'ft-Old probe' })
   expect(await ui.find({ key: 'o-ft>Old probe' })).toBeDefined()
   // emptying the box (no Enter) brings the board back at once, with no wait on a timer
-  await ui.input({ key: 'q', text: '', kind: 'change' })
+  await ui.input({ key: 'q1', text: '', kind: 'change' })
   expect(await ui.find({ type: 'Text', text: /Said in conversations/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /^webapp \d+ · active/ })).toBeDefined()
   // a second search after it works too, and clears again
-  await ui.input({ key: 'q', text: 'parser', kind: 'change' })
+  await ui.input({ key: 'q1', text: 'parser', kind: 'change' })
   await clock.advance(200)
   expect(await ui.find({ type: 'Text', text: /^Found for "parser"/ })).toBeDefined()
   // ✕ clears in one click: the board is back and the box drawn anew, empty
   await ui.press({ key: 'q-clear' })
   expect(await ui.find({ type: 'Text', text: /^Found for/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /^webapp \d+ · active/ })).toBeDefined()
-  expect(await ui.find({ key: 'q1' })).toBeDefined()
+  expect(await ui.find({ key: 'q2' })).toBeDefined()
   expect(await ui.find({ key: 'q-clear' })).toBeUndefined()
   await ui.unmount()
 })
@@ -818,8 +834,9 @@ test('a card that changes section glows, then fades back in three steps', async 
 
 test('on the Here card: no Open, and a mark shows as the active button, says so, and toggles back', async ($, on) => {
   await start($, on, {}, 'cli-Parser rewrite')
-  // the terminal: there the Here card unfolds by its title button (desktop has the Client region)
+  // the terminal: Here's ▸ shows the card, its title unfolds the details
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'here-open' })
   await ui.press({ key: 't-@Parser rewrite' })
   expect(await ui.find({ key: 'o-@Parser rewrite' })).toBeUndefined()
   toasts.length = 0
@@ -835,6 +852,7 @@ test('on the Here card: no Open, and a mark shows as the active button, says so,
 test('the watched session is on top under Here and stays in its own place too; its project comes first', async ($, on) => {
   await start($, on, {}, 'cli-Docs audit')
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'here-open' })
   expect(await ui.find({ key: 't-@Docs audit' })).toBeDefined()
   // still in its own place, as a line
   expect(await ui.find({ key: 'row-Docs audit' })).toBeDefined()
@@ -849,7 +867,10 @@ test('the watched session is on top under Here and stays in its own place too; i
 test('a watched subsession is drawn inside its main session\'s frame, as on the board', async ($, on) => {
   await start($, on, {}, 'cli-Parser edge cases')
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  // the main session's whole card, with your subsession as a card on its rail
+  // the slim line names the main session first
+  expect(await ui.find({ type: 'Text', text: /^Parser rewrite › $/ })).toBeDefined()
+  // unfolded: the main session's whole card, with your subsession as a card on its rail
+  await ui.press({ key: 'here-open' })
   expect(await ui.find({ key: 't-@Parser rewrite' })).toBeDefined()
   expect(await ui.find({ key: 't-@Parser rewrite>Parser edge cases' })).toBeDefined()
   expect(await ui.find({ key: 'go-@Parser rewrite' })).toBeDefined()
@@ -1074,6 +1095,7 @@ test('the watched session is marked and pinned under Here; elsewhere there is no
   await start($, on, {}, 'cli-Parser rewrite')
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /^HERE$/ })).toBeDefined()
+  await ui.press({ key: 'here-open' })
   expect(await ui.find({ type: 'Text', text: /◉ here/ })).toBeDefined()
   expect(await ui.find({ key: 't-@Parser rewrite' })).toBeDefined()
   await ui.unmount()

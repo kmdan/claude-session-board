@@ -10,8 +10,9 @@ lot of sessions at once and lose track of them, ADHD brains included.
   it: project, branch (ahead / behind), lines added and removed (new files
   counted), context fill, and its folder. Read with git every 30 seconds while
   the board is shown.
-- **Here**: the session you are in, pinned at the top.
-- **A paste box**: paste a log or a command's output and press Enter. It is
+- **Here**: the session you are in, one highlighted line at the top (its main
+  session first when it is a subsession); ▸ unfolds its card.
+- **A paste box** (⋯ › Paste log): paste a log or a command's output and press Enter. It is
   saved as `cache/paste-<time>-<first words>.md` and its path (not the text)
   goes into this session's prompt, so Claude reads what it needs from the file.
 - **Waiting for you**: what asks you or finished since you last looked, newest
@@ -50,8 +51,9 @@ lot of sessions at once and lose track of them, ADHD brains included.
   listing them; answer on the page, and **✓ mark answered** closes it.
 - **Find a session** as you type: a line per match, the best title match first
   (titles that start with it, then a word in them, then files, commits and
-  status). **Enter** opens the first; with no match it searches **what was
-  said** in every conversation, which **Also search what was said** does any time.
+  status). A pause in typing also searches **what was said** in every
+  conversation (about a second). **Enter** opens the best title match, else
+  the best conversation hit.
 
 ## Privacy
 

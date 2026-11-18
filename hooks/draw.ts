@@ -293,6 +293,10 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
       .sort((a, b) => a.k - b.k || b.s.last - a.s.last)
       .map(x => x.s)
   }
+  // the best conversation hit for this query, once its search has come back
+  const saidTop = (query: string) => (fullText.query === query.trim()
+    ? fullText.hits.map(hit => byCli.get(hit.cli)).find(s => !!s && inChip(s))
+    : undefined)
 
   // Waiting for you: what asks you (the app says so, or a question page is open;
   // two days, as the green dot) and what finished since you last looked (a week).
@@ -310,7 +314,7 @@ export async function readDrawing($: $T, e: Parameters<$T['ui']['resolve']>[0]) 
     all, byId, byCli, kidsOf, here, hereChain, find, chat, st,
     finishedForYou, isUnseen, waitsForYou, isFresh, hasReported, asksYou, isPageOpen, openPages, borderOf,
     inChip, inProject, listed, groups, topLevel, chips, recentTrail, trail, backTo, hereInfo,
-    tidy, famLast, inWorktree, isTicked, waiting, next, looked, hiddenIds, hiddenCount: hiddenIds.length, rankFound,
+    tidy, famLast, inWorktree, isTicked, waiting, next, looked, hiddenIds, hiddenCount: hiddenIds.length, rankFound, saidTop,
   }
 }
 

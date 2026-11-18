@@ -120,37 +120,44 @@ export const register: Register = on => {
               <Text dimColor wrap="truncate-end">{folder}</Text>
             </Box>
           ) : <Text bold>Sessions</Text>}
+          {/* quiet tools on the right: back / forward, refresh, and ⋯ for the rest */}
           <Box flexDirection="row" gap={1} alignItems="center" flexShrink={0}>
-            {/* the next session waiting for you, one click: the first not looked at since it moved */}
-            {d.next && (
-              <Button key="next" variant="primary" label={`Next ↗ ${short(d.next.title, narrow ? 12 : 22)}`}
-                onPress={() => background($, openSession($, d.next!.id, 'next'))} />
-            )}
             {/* back and forward through the sessions you were in */}
             {backTo && (
               <Button key="trail-back" variant="secondary" onPress={() => background($, stepTrail($, 1, here?.id, recentTrail))}
-                label={`‹ ${short(byId.get(backTo ?? '')?.title ?? '', narrow ? 14 : 22)}`} />
+                label={`‹ ${short(byId.get(backTo ?? '')?.title ?? '', narrow ? 10 : 18)}`} />
             )}
             {trail && trail.pos > 0 && (
               <Button key="trail-forward" variant="secondary" label="›" onPress={() => background($, stepTrail($, -1, here?.id, recentTrail))} />
             )}
             {ix.isLoading && Svg && <Svg source={PULSE_WORKING} alt="indexing" width={12} height={12} isInteractive />}
-            <Button key="refresh" variant="secondary" label={ix.isLoading ? 'Indexing…' : '↻ Refresh'} onPress={() => {
+            <Button key="refresh" variant="secondary" label={ix.isLoading ? 'Indexing…' : '↻'} onPress={() => {
               logUse('refresh')
               background($, refresh($))
             }} />
+            <Button key="more" variant={ui.shown.more ? 'primary' : 'secondary'} label="⋯"
+              onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, more: !u.shown.more } }))} />
           </Box>
         </Box>
-        <Box flexDirection="row" gap={1} alignItems="center">
+        {/* ⋯: what is used now and then (the paste box), out of the way the rest of the time */}
+        {ui.shown.more && (
+          <Box flexDirection="row" flexWrap="wrap" gap={1} marginTop={1}>
+            <Button key="paste-open" variant={ui.shown.paste ? 'primary' : 'secondary'} label="Paste log"
+              onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, paste: !u.shown.paste } }))} />
+          </Box>
+        )}
+        {/* one command row: find a session, and Next */}
+        <Box flexDirection="row" gap={1} alignItems="center" marginTop={1}>
           <Box flexGrow={1} flexShrink={1}>
             <Input
               // a new key draws a fresh, empty box: how ✕ clears a field the board does not bind
               key={ui.cleared ? `q${ui.cleared}` : 'q'}
-              placeholder="Find a session… Enter opens the best match"
+              placeholder="Find a session or what was said… Enter opens the best match"
               // not bound to ui.query: the field keeps what is typed itself, and the
               // board redraws once typing pauses (150 ms), not on every letter. An
               // emptied box clears at once: it must never wait on the timer (in the
-              // app the search stayed stuck until Enter)
+              // app the search stayed stuck until Enter). A longer pause (0.7 s)
+              // also searches what was said in every conversation (about a second).
               onInput={v => {
                 live.typedQuery = v
                 if (v.trim() === '') {
@@ -160,11 +167,15 @@ export const register: Register = on => {
                 $.clock.after(150, () => {
                   if (live.typedQuery === v) setUi(u => (u.query === v ? u : { ...u, query: v }))
                 })
+                $.clock.after(700, () => {
+                  if (live.typedQuery === v && v.trim().length >= 3) background($, searchText($, v))
+                })
               }}
-              // Enter: the best match opens (a quick switcher); with none, what was said is searched
+              // Enter: the best title match opens (a quick switcher); else the best
+              // conversation hit; with neither yet, what was said is searched
               onSubmit={v => {
                 live.typedQuery = v
-                const top = d.rankFound(v)[0]
+                const top = d.rankFound(v)[0] ?? d.saidTop(v)
                 logUse('search', { q: v.slice(0, 60), opened: !!top })
                 if (top) {
                   background($, openSession($, top.id, 'search-enter'))
@@ -180,12 +191,14 @@ export const register: Register = on => {
               live.typedQuery = ''
               setUi(u => ({ ...u, query: '', cleared: (u.cleared ?? 0) + 1 }))
             }}>
-              <Text dimColor>✕ clear</Text>
+              <Text dimColor>✕</Text>
             </Button>
           )}
-          {/* the paste box opens on demand: it is used now and then, not all day */}
-          <Button key="paste-open" variant={ui.shown.paste ? 'primary' : 'secondary'} label="Paste log"
-            onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, paste: !u.shown.paste } }))} />
+          {/* the next session waiting for you, one click: the first not looked at since it moved */}
+          {d.next && (
+            <Button key="next" variant="primary" label={narrow ? 'Next ↗' : `Next ↗ ${short(d.next.title, 16)}`}
+              onPress={() => background($, openSession($, d.next!.id, 'next'))} />
+          )}
         </Box>
         {/* paste a log or a command's output: Enter saves it as an .md file and puts its
             path in this session's prompt (a new key draws the box anew, empty), and it folds away */}
@@ -205,14 +218,11 @@ export const register: Register = on => {
             />
           </Box>
         )}
+        {/* the project chips; away from the board (Tidy up, one card), the way back first */}
         <Box flexDirection="row" flexWrap="wrap" gap={1} marginY={1}>
-          <Button key="v-board" variant={ui.view === 'board' || ui.view === 'focus' ? 'primary' : 'secondary'} label="Board" onPress={() => setUi(u => ({ ...u, view: 'board' }))} />
-          {/* only while there is something to tidy (a hidden one comes back by search, or Unhide there) */}
-          {(d.tidy.length > 0 || ui.view === 'tidy') && (
-            <Button key="v-tidy" variant={ui.view === 'tidy' ? 'primary' : 'secondary'} label={`Tidy up · ${d.tidy.length}`}
-              onPress={() => setUi(u => ({ ...u, view: 'tidy' }))} />
+          {ui.view !== 'board' && (
+            <Button key="v-board" variant="secondary" label="← Board" onPress={() => setUi(u => ({ ...u, view: 'board' }))} />
           )}
-          <Text dimColor>|</Text>
           <Button key="p-all" variant={ui.project === '' ? 'primary' : 'secondary'} label="All" onPress={() => setUi(u => ({ ...u, project: '' }))} />
           {chips.map(p => (
             <Button key={`p-${p}`} variant={ui.project === p ? 'primary' : 'secondary'} label={projectLabel(p)}

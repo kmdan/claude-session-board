@@ -6,8 +6,7 @@ import type { Cards } from './cards'
 import { archiveMany, hideMany, openSession } from './actions'
 import { ACCENT, BORDER, chipOf, DOT, READY, SEEN, short, stateWord } from './draw'
 import type { Drawing } from './draw'
-import { background, logUse, setPref } from './state'
-import { searchText } from './indexing'
+import { background, setPref } from './state'
 import type { $T } from './state'
 
 // how many cards a section shows before "Show more"
@@ -21,7 +20,12 @@ const moreWord = (total: number, limit: number) => {
 
 // `fill`: the only list on the board (search results, one project): it shows as
 // many as the pane has room for, not the few a section among others shows
-type SectionOpts = { note?: string; byTime?: boolean; project?: string; foldable?: boolean; fill?: boolean }
+// `collapsible`: ▾ / ▸ before the heading folds the section to its heading (a project);
+// `startFolded`: folded until you open it (a project quiet for days)
+type SectionOpts = {
+  note?: string; byTime?: boolean; project?: string; foldable?: boolean; fill?: boolean
+  collapsible?: boolean; startFolded?: boolean
+}
 
 // the rows above the lists (counts, search, tabs, heading) and what a card takes
 // with its gap (border, title, grey line, a needs line now and then)
@@ -57,10 +61,18 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
           onPress={() => setUi(u => ({ ...u, limits: { ...u.limits, [key]: limit + 10 } }))} />
       </Box>
     )
+    const isFolded = opts.collapsible && (ui.shown[`folded-${key}`] ?? opts.startFolded ?? false)
     return (
       <Box key={`s-${key}`} flexDirection="column" marginBottom={1}>
         <Box flexDirection="row" gap={1} alignItems="center">
-          <Text color={color ?? SEEN}>▎</Text>
+          {opts.collapsible
+            ? (
+              <Button key={`pf-${key}`} plain onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, [`folded-${key}`]: !isFolded } }))}>
+                {isFolded ? '▸' : '▾'}
+              </Button>
+            )
+            : null}
+          <Text color={color ?? SEEN}>{opts.collapsible ? '●' : '▎'}</Text>
           <Text>
             <Text bold color={color}>{title}</Text>
             <Text dimColor> {list.length}{opts.note ? ` · ${opts.note}` : ''}</Text>
@@ -73,7 +85,7 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
         </Box>
         {/* quiet sessions: one soft card per section holding a line each (an
             unfolded one opens as its own card in place) */}
-        {asRows
+        {isFolded ? null : asRows
           ? (
             <Box flexDirection="column" borderStyle="round" borderColor={BORDER} paddingX={1}>
               {list.slice(0, limit).map(s => (
@@ -86,7 +98,7 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
             </Box>
           )
           : list.slice(0, limit).map(s => card(s, withState))}
-        {!asRows && more}
+        {!asRows && !isFolded && more}
       </Box>
     )
   }
@@ -130,12 +142,23 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
       .sort((a, b) => Number(b[0] === hereChip) - Number(a[0] === hereChip) || b[1][0].last - a[1][0].last)
     return (
       <Box flexDirection="column">
+        {/* a project quiet three days or more starts folded to its heading (not yours) */}
         {order.map(([p, list]) => section(`proj-${p}`, projectLabel(p), list, projectColor(p), false, true,
-          { note: `active ${ago(now - list[0].last)} ago`, byTime: true, project: p, fill: order.length === 1 }))}
+          {
+            note: `active ${ago(now - list[0].last)} ago`, byTime: true, project: p, fill: order.length === 1,
+            collapsible: true, startFolded: p !== hereChip && order.length > 1 && now - list[0].last > 3 * 86_400_000,
+          }))}
         {foldRow([
           { key: 'done', title: 'Done', list: groups.done },
           { key: 'parked', title: 'Parking lot', list: groups.parked },
         ])}
+        {/* the quiet end: Tidy up beside the folded heaps, only while there is something to tidy */}
+        {d.tidy.length > 0 && (
+          <Box flexDirection="row" gap={1} marginBottom={1}>
+            <Button key="v-tidy" variant="secondary" label={`Tidy up · ${d.tidy.length}`}
+              onPress={() => setUi(u => ({ ...u, view: 'tidy' }))} />
+          </Box>
+        )}
       </Box>
     )
   }
@@ -170,6 +193,9 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
             const asks = waitsForYou(s)
             const isNew = !looked(s)
             const parent = s.parent ? byId.get(s.parent) : undefined
+            // why it is here, in a word: its open questions, that it asks, or that it finished
+            const qCount = d.openPages(s).reduce((sum, p) => sum + p.qs.length, 0)
+            const reason = qCount ? `${qCount} question${qCount > 1 ? 's' : ''}` : asks ? 'asks you' : 'finished'
             return (
               <Box key={`wl-${s.id}`} flexDirection="row" gap={1} alignItems="center" minWidth={0} overflow="hidden">
                 <Text color={isNew || asks ? READY : SEEN}>●</Text>
@@ -181,7 +207,7 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
                 </Box>
                 <Box flexDirection="row" gap={1} flexShrink={0}>
                   <Text color={projectColor(s.project)}>{short(projectLabel(chipOf(s.project)), narrow ? 10 : 16)}</Text>
-                  <Text color={asks ? ACCENT : READY}>{asks ? 'asks you' : 'new'}</Text>
+                  <Text color={asks ? ACCENT : READY}>{reason}</Text>
                   <Text dimColor>{ago(now - s.last)}</Text>
                 </Box>
               </Box>
@@ -208,12 +234,30 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
       <Box flexDirection="column">
         {all.length === 0 && <Text dimColor>{ix.isLoading ? 'Reading your sessions…' : ix.note}</Text>}
         {waitingStrip()}
-        {hereTop && (
-          <Box key="s-here" flexDirection="column" marginBottom={1}>
-            <Text dimColor>HERE</Text>
-            {card(hereTop, true, 0, `@${hereTop.id}`)}
-          </Box>
-        )}
+        {/* Here: one slim highlighted line (its main session first when it is a
+            subsession); ▸ unfolds the card, for its marks and tabs */}
+        {hereTop && here && (ui.shown.hereOpen
+          ? (
+            <Box key="s-here" flexDirection="column" marginBottom={1}>
+              <Button key="here-open" plain onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, hereOpen: false } }))}>
+                <Text color={ACCENT}>▾ HERE</Text>
+              </Button>
+              {card(hereTop, true, 0, `@${hereTop.id}`)}
+            </Box>
+          )
+          : (
+            <Box key="s-here" flexDirection="row" gap={1} alignItems="center" borderStyle="round" borderColor={ACCENT} paddingX={1} marginBottom={1} minWidth={0}>
+              <Button key="here-open" plain onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, hereOpen: true } }))}>▸</Button>
+              <Text bold color={ACCENT}>HERE</Text>
+              <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
+                <Text wrap="truncate-end">
+                  {here.parent && byId.get(here.parent) ? <Text dimColor>{short(byId.get(here.parent)!.title, d.narrow ? 12 : 24)} › </Text> : null}
+                  <Text bold>{here.title}</Text>
+                </Text>
+              </Box>
+              <Text dimColor>{ago(now - here.last)}</Text>
+            </Box>
+          ))}
         {byProject()}
       </Box>
     )
@@ -329,18 +373,10 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
       : []
     const saidView = () => {
       if (ui.query.trim().length < 3) return null
-      if (fullText.query !== ui.query.trim()) {
-        return (
-          <Box marginTop={1}>
-            <Button key="said-search" variant="secondary" label="Also search what was said"
-              onPress={() => {
-                logUse('search-said', { q: ui.query.slice(0, 60) })
-                background($, searchText($, ui.query))
-              }} />
-          </Box>
-        )
+      // what was said is searched on its own once typing pauses (about a second)
+      if (fullText.query !== ui.query.trim() || fullText.isLoading) {
+        return <Box marginTop={1}><Text dimColor>Searching what was said in every conversation…</Text></Box>
       }
-      if (fullText.isLoading) return <Text dimColor>Searching conversations…</Text>
       return (
         <Box flexDirection="column" marginTop={1}>
           <Text bold>Said in conversations ({said.length})</Text>

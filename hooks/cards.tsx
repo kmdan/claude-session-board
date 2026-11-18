@@ -270,10 +270,13 @@ export function makeCards($: $T, d: Drawing) {
             <Text dimColor>{askCount ? ` question${askCount > 1 ? 's' : ''}${meta.length ? ' · ' : ''}` : ''}{meta.join(' · ')}</Text>
           </Button>
         )}
+        {/* what it needs from you: the one thing to act on, set apart on its own tinted line */}
         {showNeeds && (
-          <Button key={`tn-${path}`} plain onPress={toggleCard}>
-            <Text color={ACCENT}>→ {s.needs}</Text>
-          </Button>
+          <Box backgroundColor="#2b241b" paddingX={1} marginY={isOpen ? 1 : 0}>
+            <Button key={`tn-${path}`} plain onPress={toggleCard}>
+              <Text color={ACCENT}>→ {s.needs}</Text>
+            </Button>
+          </Box>
         )}
         {children(s, depth, path, isOpen)}
         {isOpen && (
@@ -324,7 +327,7 @@ export function makeCards($: $T, d: Drawing) {
             <Box flexDirection="row" flexWrap="wrap" gap={1} marginTop={1}>
               {/* this session's own card has nowhere to open to */}
               {!(here && s.id === here.id) && (
-                <Button key={`o-${path}`} label="Open" onPress={() => background($, openSession($, s.id, 'card-button'))} />
+                <Button key={`o-${path}`} variant="primary" label="Open ↗" onPress={() => background($, openSession($, s.id, 'card-button'))} />
               )}
               {/* the state set by hand is the highlighted one; pressing it again goes back to automatic */}
               {([['g', 'good', 'Good enough'], ['d', 'done', 'Done'], ['p', 'parked', 'Park'], ['w', 'working', 'Working']] as const).map(([k, m, label]) => (
