@@ -632,7 +632,8 @@ test('a session outside a git repo shows just its project and folder on the top 
 
 test('Waiting for you lists what asks you or finished unseen, newest first; Next opens the first not looked at', async ($, on) => {
   const store: Record<string, unknown> = {}
-  await start($, on, store)
+  mock.clock(on, { now: Date.now() })
+  await start($, on, store, undefined, false)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   // Parser rewrite asks (an hour ago, never looked at); its subsession asked 3 days ago, unseen;
   // Docs audit is working, Old probe a month quiet: neither waits
@@ -640,16 +641,20 @@ test('Waiting for you lists what asks you or finished unseen, newest first; Next
   expect(await ui.find({ key: 'wt-Parser rewrite' })).toBeDefined()
   expect(await ui.find({ key: 'wt-Parser edge cases' })).toBeDefined()
   expect(await ui.find({ key: 'wt-Docs audit' })).toBeUndefined()
-  expect((await ui.find({ key: 'next' }) as any)?.props?.label).toMatch(/^Next ↗ Parser rewrite/)
+  ran.length = 0
   await ui.press({ key: 'next' })
   expect(ran.some(a => a.join(' ').endsWith('epitaxy/Parser rewrite'))).toBe(true)
   // looked at now: Next moves on to the one you have not seen; Parser rewrite stays listed, it still asks
-  expect((await ui.find({ key: 'next' }) as any)?.props?.label).toMatch(/^Next ↗ Parser edge/)
+  ran.length = 0
+  await ui.press({ key: 'next' })
+  expect(ran.some(a => a.join(' ').endsWith('epitaxy/Parser edge cases'))).toBe(true)
+  // Parser edge cases, seen now and only finished (no longer asking within two days), leaves
   expect(await ui.find({ key: 'wt-Parser rewrite' })).toBeDefined()
+  expect(await ui.find({ key: 'wt-Parser edge cases' })).toBeUndefined()
   // ▾ folds the strip to its heading; Next stays
   await ui.press({ key: 'waiting-fold' })
   expect(await ui.find({ key: 'wt-Parser rewrite' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^Waiting for you 2$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Waiting for you 1$/ })).toBeDefined()
   expect(await ui.find({ key: 'next' })).toBeDefined()
   await ui.press({ key: 'waiting-fold' })
   expect(await ui.find({ key: 'wt-Parser rewrite' })).toBeDefined()
@@ -666,10 +671,8 @@ test('pasted text is saved as an .md file and its path goes into the prompt box,
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const log = 'C:\\build> make all\nerror: missing ``` fence\nline three'
-  // the box opens from Paste log under ⋯, so the top stays short
+  // the box opens from its Paste log button, so the top stays short
   expect(await ui.find({ key: 'paste-0' })).toBeUndefined()
-  expect(await ui.find({ key: 'paste-open' })).toBeUndefined()
-  await ui.press({ key: 'more' })
   await ui.press({ key: 'paste-open' })
   await ui.input({ key: 'paste-0', text: log })
   await new Promise(done => setTimeout(done, 50))
@@ -910,7 +913,7 @@ test('the board is a section per project, the project last edited first, a line 
   expect(api).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^Needs you / })).toBeUndefined()
   // each session is a line under its project: its title opens the session, ▸ unfolds its card
-  expect(await ui.find({ key: 'rd-Docs audit' })).toBeDefined()
+  expect(await ui.find({ key: 'row-Docs audit' })).toBeDefined()
   await ui.press({ key: 't-Docs audit' })
   expect(ran.some(a => a.join(' ').endsWith('epitaxy/Docs audit'))).toBe(true)
   await ui.press({ key: 'u-Docs audit' })
@@ -1021,7 +1024,7 @@ test('search finds an archived session by a file it wrote and by its commit', as
   await clock.advance(200)
   expect(await ui.find({ type: 'Text', text: /^Found for "a1b2c3d" 1(?!\d)/ })).toBeDefined()
   // opening the found session leaves for it: the board you come back to has no search on
-  await ui.press({ key: 'go-Archived exporter' })
+  await ui.press({ key: 't-Archived exporter' })
   expect(await ui.find({ type: 'Text', text: /^Found for/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /^webapp \d+ · active/ })).toBeDefined()
   expect(await ui.find({ key: 'q-clear' })).toBeUndefined()
@@ -1149,11 +1152,11 @@ test('one click opens a session; a subsession links up to its parent', async ($,
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
 
-  // closed card, one press: the session opens
+  // a line's title, one press: the session opens
   ran.length = 0
-  await ui.press({ key: 'go-Docs audit' })
+  await ui.press({ key: 't-Docs audit' })
   expect(ran.some(a => a.join(' ').includes('claude://claude.ai/epitaxy/Docs audit'))).toBe(true)
-  // the app takes seconds to switch: the button answers at once
+  // the app takes seconds to switch: the line answers at once
   expect(await ui.find({ type: 'Text', text: /^opening…$/ })).toBeDefined()
 
   // the subsession's own card (reached from Related) carries its way up, and one "open ↗": its own
@@ -1200,13 +1203,14 @@ test('a session that finished since you last looked says unseen, until you open 
   await ui.unmount()
 })
 
-test('a quiet line marks its session done or parked in one click, without unfolding', async ($, on) => {
+test('a line is its title and age only; the marks are on its card, and Done folds it away', async ($, on) => {
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  // Docs audit is a one-line row (working, not waiting on you)
-  expect(await ui.find({ key: 'rd-Docs audit' })).toBeDefined()
-  await ui.press({ key: 'rd-Docs audit' })
-  expect(await ui.find({ key: 'rd-Docs audit' })).toBeUndefined()
+  // no ✓ ⏸ ↗ on the line itself
+  for (const key of ['rd-Docs audit', 'rp-Docs audit', 'go-Docs audit']) expect(await ui.find({ key })).toBeUndefined()
+  await ui.press({ key: 'u-Docs audit' })
+  await ui.press({ key: 'd-Docs audit' })
+  expect(await ui.find({ key: 'row-Docs audit' })).toBeUndefined()
   expect((await ui.find({ key: 'show-done' }) as any)?.props?.label).toBe('Done · 1 ▾')
   await ui.unmount()
 })

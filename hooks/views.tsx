@@ -207,7 +207,10 @@ export function makeViews($: $T, d: Drawing, cards: Cards) {
                 </Box>
                 <Box flexDirection="row" gap={1} flexShrink={0}>
                   <Text color={projectColor(s.project)}>{short(projectLabel(chipOf(s.project)), narrow ? 10 : 16)}</Text>
-                  <Text color={asks ? ACCENT : READY}>{reason}</Text>
+                  {/* the reason as a small tinted badge */}
+                  <Box backgroundColor={asks || qCount ? '#3a2f22' : '#22332a'} paddingX={1}>
+                    <Text color={asks || qCount ? ACCENT : READY}>{reason}</Text>
+                  </Box>
                   <Text dimColor>{ago(now - s.last)}</Text>
                 </Box>
               </Box>

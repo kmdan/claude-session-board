@@ -389,13 +389,9 @@ export function makeCards($: $T, d: Drawing) {
           {/* found by search though off the board */}
           {s.archived && <Text dimColor>{s.hidden ? 'hidden' : 'archived'}</Text>}
           {withTag && <Text color={projectColor(s.project)} wrap="truncate-end">{short(projectLabel(chipOf(s.project)), narrow ? 10 : 18)}</Text>}
-          <Text dimColor>{ago(now - s.last)}</Text>
-          {/* quick marks without unfolding: done, park (undo: the card's Auto button) */}
-          <Button key={`rd-${s.id}`} plain dimColor onPress={() => background($, mark($, s.id, 'done', s.title, 'line'))}>✓</Button>
-          <Button key={`rp-${s.id}`} plain dimColor onPress={() => background($, mark($, s.id, 'parked', s.title, 'line'))}>⏸</Button>
-          <Button key={`go-${s.id}`} plain onPress={() => background($, openSession($, s.id, 'line-arrow'))}>
-            {opening === s.id ? <Text color={ACCENT}>opening…</Text> : <Text dimColor>↗</Text>}
-          </Button>
+          {/* a line is its title and its age: the title opens it, ▸ has the marks (the
+              ✓ ⏸ ↗ that sat here were all but unused, and crowded every line) */}
+          {opening === s.id ? <Text color={ACCENT}>opening…</Text> : <Text dimColor>{ago(now - s.last)}</Text>}
         </Box>
       </Box>
     )

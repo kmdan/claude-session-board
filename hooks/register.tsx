@@ -103,10 +103,10 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column" paddingX={1}>
-        {/* in a narrow pane the buttons go under the session's line, not squeeze it into a column */}
-        <Box flexDirection="row" flexWrap="wrap" justifyContent="space-between" columnGap={2}>
+        {/* the session's line takes the room and gives way (cut with "…"); the small tools keep the right edge */}
+        <Box flexDirection="row" justifyContent="space-between" alignItems="center" columnGap={2}>
           {here ? (
-            <Box flexDirection="column" flexShrink={1} minWidth={0}>
+            <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
               <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
                 <Text bold color={projectColor(here.project)}>● {projectLabel(here.project)}</Text>
                 {info?.branch && (
@@ -125,12 +125,15 @@ export const register: Register = on => {
             {/* back and forward through the sessions you were in */}
             {backTo && (
               <Button key="trail-back" variant="secondary" onPress={() => background($, stepTrail($, 1, here?.id, recentTrail))}
-                label={`‹ ${short(byId.get(backTo ?? '')?.title ?? '', narrow ? 10 : 18)}`} />
+                label="‹" />
             )}
             {trail && trail.pos > 0 && (
               <Button key="trail-forward" variant="secondary" label="›" onPress={() => background($, stepTrail($, -1, here?.id, recentTrail))} />
             )}
             {ix.isLoading && Svg && <Svg source={PULSE_WORKING} alt="indexing" width={12} height={12} isInteractive />}
+            {/* used a few times a day: its own button, not behind ⋯ */}
+            <Button key="paste-open" variant={ui.shown.paste ? 'primary' : 'secondary'} label="Paste log"
+              onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, paste: !u.shown.paste } }))} />
             <Button key="refresh" variant="secondary" label={ix.isLoading ? 'Indexing…' : '↻'} onPress={() => {
               logUse('refresh')
               background($, refresh($))
@@ -139,16 +142,18 @@ export const register: Register = on => {
               onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, more: !u.shown.more } }))} />
           </Box>
         </Box>
-        {/* ⋯: what is used now and then (the paste box), out of the way the rest of the time */}
+        {/* ⋯: what is used now and then (a project filter), out of the way the rest of the time */}
         {ui.shown.more && (
           <Box flexDirection="row" flexWrap="wrap" gap={1} marginTop={1}>
-            <Button key="paste-open" variant={ui.shown.paste ? 'primary' : 'secondary'} label="Paste log"
-              onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, paste: !u.shown.paste } }))} />
+            {chips.map(p => (
+              <Button key={`p-${p}`} variant={ui.project === p ? 'primary' : 'secondary'} label={projectLabel(p)}
+                onPress={() => setUi(u => ({ ...u, project: u.project === p ? '' : p }))} />
+            ))}
           </Box>
         )}
-        {/* one command row: find a session, and Next */}
+        {/* one command row: find a session (the field takes the room), and Next */}
         <Box flexDirection="row" gap={1} alignItems="center" marginTop={1}>
-          <Box flexGrow={1} flexShrink={1}>
+          <Box flexGrow={1} flexShrink={1} flexDirection="column" alignItems="stretch" minWidth={0}>
             <Input
               // a new key draws a fresh, empty box: how ✕ clears a field the board does not bind
               key={ui.cleared ? `q${ui.cleared}` : 'q'}
@@ -196,7 +201,7 @@ export const register: Register = on => {
           )}
           {/* the next session waiting for you, one click: the first not looked at since it moved */}
           {d.next && (
-            <Button key="next" variant="primary" label={narrow ? 'Next ↗' : `Next ↗ ${short(d.next.title, 16)}`}
+            <Button key="next" variant="primary" label="Next ↗"
               onPress={() => background($, openSession($, d.next!.id, 'next'))} />
           )}
         </Box>
@@ -218,17 +223,18 @@ export const register: Register = on => {
             />
           </Box>
         )}
-        {/* the project chips; away from the board (Tidy up, one card), the way back first */}
-        <Box flexDirection="row" flexWrap="wrap" gap={1} marginY={1}>
-          {ui.view !== 'board' && (
-            <Button key="v-board" variant="secondary" label="← Board" onPress={() => setUi(u => ({ ...u, view: 'board' }))} />
-          )}
-          <Button key="p-all" variant={ui.project === '' ? 'primary' : 'secondary'} label="All" onPress={() => setUi(u => ({ ...u, project: '' }))} />
-          {chips.map(p => (
-            <Button key={`p-${p}`} variant={ui.project === p ? 'primary' : 'secondary'} label={projectLabel(p)}
-              onPress={() => setUi(u => ({ ...u, project: u.project === p ? '' : p }))} />
-          ))}
-        </Box>
+        {/* away from the board (Tidy up, one card): the way back; a project filter on: it, to take off */}
+        {(ui.view !== 'board' || ui.project !== '') && (
+          <Box flexDirection="row" flexWrap="wrap" gap={1} marginTop={1}>
+            {ui.view !== 'board' && (
+              <Button key="v-board" variant="secondary" label="← Board" onPress={() => setUi(u => ({ ...u, view: 'board' }))} />
+            )}
+            {ui.project !== '' && (
+              <Button key="p-all" variant="primary" label={`${projectLabel(ui.project)} ✕`} onPress={() => setUi(u => ({ ...u, project: '' }))} />
+            )}
+          </Box>
+        )}
+        <Box marginTop={1} />
 
         {view()}
         <Text dimColor wrap="truncate-end">{ix.note}</Text>
