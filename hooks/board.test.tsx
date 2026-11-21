@@ -1203,6 +1203,36 @@ test('a session that finished since you last looked says unseen, until you open 
   await ui.unmount()
 })
 
+test('⌄ after a title lists all its subsessions, indented a step per level, as the sidebar does', async ($, on) => {
+  const saved = INDEX.sessions
+  const old = NOW - 20 * 24 * H
+  INDEX.sessions = [
+    sess('Main', { last: NOW - H }),
+    sess('Child', { parent: 'Main', last: old }),
+    sess('Grandchild', { parent: 'Child', last: old }),
+  ] as any
+  for (const k of Object.keys(disk)) delete disk[k]
+  try {
+    await start($, on)
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    // quiet ones wait: only the count after the title
+    expect(await ui.find({ key: 'sl-Main>Child' })).toBeUndefined()
+    await ui.press({ key: 'kx-Main' })
+    const child = await ui.find({ key: 'sb-Main>Child' }) as any
+    const grand = await ui.find({ key: 'sb-Main>Child>Grandchild' }) as any
+    expect(child?.props?.marginLeft).toBe(4)
+    expect(grand?.props?.marginLeft).toBe(7)
+    // no tree marks
+    expect(await ui.find({ type: 'Text', text: /^[├└] $/ })).toBeUndefined()
+    await ui.press({ key: 'kx-Main' })
+    expect(await ui.find({ key: 'sl-Main>Child' })).toBeUndefined()
+    await ui.unmount()
+  } finally {
+    INDEX.sessions = saved
+    for (const k of Object.keys(disk)) delete disk[k]
+  }
+})
+
 test('a line is its title and age only; the marks are on its card, and Done folds it away', async ($, on) => {
   await start($, on)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })

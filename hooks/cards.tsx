@@ -76,7 +76,9 @@ export function makeCards($: $T, d: Drawing) {
   // One subsession as a short line: its dot, its title (which opens it), what it
   // does and its age. The same line under a card, an open card and a quiet line.
   // `path` names the parent's place on the board: a parent may be drawn twice.
-  const subLine = (c: Sess, path: string, isLast: boolean, indent = 2) => {
+  // Indented under its parent's title, as the app's sidebar lists them: no tree
+  // marks, each level a step further in.
+  const subLine = (c: Sess, path: string, _isLast: boolean, indent = 4) => {
     const working = isWorking(c, now)
     const asks = !working && asksYou(c)
     const cs = st(c)
@@ -84,7 +86,6 @@ export function makeCards($: $T, d: Drawing) {
       : cs === 'done' || cs === 'parked' ? stateWord[cs] : ''
     return (
       <Box key={`sb-${path}>${c.id}`} flexDirection="row" alignItems="center" marginLeft={indent} minWidth={0} overflow="hidden">
-        <Text dimColor>{isLast ? '└ ' : '├ '}</Text>
         {/* drawn beside the button: a button holds only text */}
         {working && Svg
           ? <Svg source={PULSE_WORKING} alt="working now" width={10} height={10} isInteractive />
@@ -122,7 +123,7 @@ export function makeCards($: $T, d: Drawing) {
     const kids = (kidsOf.get(s.id) ?? []).filter(c => !skip(c))
     return kids.flatMap((c, i) => [
       subLine(c, path, i === kids.length - 1, indent),
-      ...(indent < 12 ? familyLines(c, `${path}>${c.id}`, indent + 2, skip) : []),
+      ...(indent < 16 ? familyLines(c, `${path}>${c.id}`, indent + 3, skip) : []),
     ])
   }
 
@@ -160,12 +161,12 @@ export function makeCards($: $T, d: Drawing) {
           </Box>
         )}
         {showAll
-          ? familyLines(s, path, 2, isHereKid)
+          ? familyLines(s, path, 4, isHereKid)
           : lines.map((c, i) => subLine(c, path, i === lines.length - 1 && !hasMore))}
         {hasMore && (
-          <Box marginLeft={2}>
+          <Box marginLeft={4}>
             <Button key={`km-${path}`} plain onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, [`kids-${path}`]: true } }))}>
-              <Text dimColor>└ {folded} more</Text>
+              <Text dimColor>{folded} more</Text>
             </Button>
           </Box>
         )}
@@ -345,10 +346,12 @@ export function makeCards($: $T, d: Drawing) {
     )
   }
 
-  // Under a session's quiet line: its live subsessions. The rest stay in the
-  // line's "+N" (an unfolded line is a card, which draws its own).
+  // Under a session's quiet line: its live subsessions; its ⌄ after the title
+  // shows them all, every level, as the app's sidebar does (an unfolded line is
+  // a card, which draws its own).
   const subLines = (s: Sess) => {
     if (ui.open === s.id) return null
+    if (ui.shown[`kids-${s.id}`]) return familyLines(s, s.id, 4, () => false)
     const lines = liveKids(s)
     return lines.map((c, i) => subLine(c, s.id, i === lines.length - 1))
   }
@@ -374,15 +377,20 @@ export function makeCards($: $T, d: Drawing) {
         {/* the session you are in, in its usual place: marked, as on its card */}
         {here && s.id === here.id && <Text color={HERE}>◉</Text>}
         {/* in a narrow pane the title gives way (cut with "…"); the right side never wraps */}
-        <Box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
+        <Box flexDirection="row" alignItems="center" flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
           <Button key={`t-${s.id}`} plain onPress={() => {
             // a search that ends in an open is the search worth logging
             if (ui.query) logUse('search', { q: ui.query.slice(0, 60), opened: true })
             background($, openSession($, s.id, ui.query ? 'search-line' : 'line-title'))
           }}>
             <Text bold={isUnseen(s)} wrap="truncate-end">{s.title}</Text>
-            {kids > 0 && <Text dimColor>  +{kids}{reports ? ` ↩${reports}` : ''}</Text>}
           </Button>
+          {/* its subsessions, as in the sidebar: ⌄ shows them all, ⌃ back to the live ones */}
+          {kids > 0 && (
+            <Button key={`kx-${s.id}`} plain onPress={() => setUi(u => ({ ...u, shown: { ...u.shown, [`kids-${s.id}`]: !u.shown[`kids-${s.id}`] } }))}>
+              <Text dimColor>{ui.shown[`kids-${s.id}`] ? ' ⌃' : ' ⌄'} {kids}{reports ? ` ↩${reports}` : ''}</Text>
+            </Button>
+          )}
         </Box>
         <Box flexDirection="row" gap={1} flexShrink={0} alignItems="center">
           {/* a one-off scratch folder shows as its chip: the dated name wrapped the line */}
